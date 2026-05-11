@@ -72,7 +72,7 @@ export default async function AffiliateDetailPage({ params }: PageProps) {
         title={a.full_name}
         description={`${status.label} • Bắt đầu ${formatDate(a.start_date)}`}
         action={
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2"> 
             <AffiliateDeleteButton id={a.id} name={a.full_name} />
             <Button asChild>
               <Link href={`/affiliates/${a.id}/edit`}>

@@ -25,7 +25,7 @@ export interface AffiliateFormData {
   notes?: string;
 }
 
-function cleanEmpty<T extends Record<string, unknown>>(obj: T): Partial<T> {
+function cleanEmpty<T extends object>(obj: T): Partial<T> {
   const result: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(obj)) {
     if (value === "" || value === undefined) continue;
