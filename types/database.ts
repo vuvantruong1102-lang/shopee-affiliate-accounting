@@ -25,6 +25,10 @@ export interface AffiliateAccount {
   shopee_affiliate_id: string | null;
   has_personal_deduction: boolean;
   dependent_count: number;
+  // NEW: lương từ công ty
+  has_company_salary: boolean;
+  monthly_salary_gross: number;
+  monthly_salary_tax_withheld: number;
   cccd_front_url: string | null;
   cccd_back_url: string | null;
   status: AffiliateStatus;
