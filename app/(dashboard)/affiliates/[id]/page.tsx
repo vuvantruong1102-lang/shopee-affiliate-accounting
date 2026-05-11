@@ -5,11 +5,12 @@ import { Badge } from "@/components/ui/badge";
 import { createClient } from "@/lib/supabase/server";
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { ChevronLeft, Pencil, Phone, Mail, MapPin, CreditCard, FileText, TrendingUp, Wallet } from "lucide-react";
+import { ChevronLeft, Pencil, Phone, Mail, MapPin, CreditCard, FileText, TrendingUp, Wallet, Receipt } from "lucide-react";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { AffiliateDeleteButton } from "@/components/affiliates/affiliate-delete-button";
 import { CommissionList } from "@/components/affiliates/commission-list";
 import { calculateYtdAdditionalTax } from "@/lib/ytd-tax";
+import { DEPENDENT_DEDUCTION_MONTHLY, PERSONAL_DEDUCTION_MONTHLY } from "@/lib/tax-calculator";
 import type { AffiliateAccount, AffiliateStatus, Commission, AffiliateSummary } from "@/types/database";
 
 const STATUS_LABEL: Record<AffiliateStatus, { label: string; variant: "success" | "warning" | "neutral" }> = {
@@ -48,10 +49,9 @@ export default async function AffiliateDetailPage({ params }: PageProps) {
     total_deposited: 0,
   }) as AffiliateSummary;
 
-  // Lấy số liệu Shopee YTD (từ đầu năm đến hiện tại)
   const now = new Date();
   const currentYear = now.getFullYear();
-  const monthsElapsed = now.getMonth() + 1; // tháng 1 = 1, tháng 12 = 12
+  const monthsElapsed = now.getMonth() + 1;
 
   const { data: ytdCommissions } = await supabase
     .from("commissions")
@@ -65,7 +65,6 @@ export default async function AffiliateDetailPage({ params }: PageProps) {
   const ytdShopeeTaxWithheld =
     ytdCommissions?.reduce((s, c) => s + Number(c.tax_withheld), 0) ?? 0;
 
-  // Tính thuế YTD cần nộp thêm
   const ytdTax = calculateYtdAdditionalTax({
     monthsElapsed,
     monthlySalaryGross: a.has_company_salary ? Number(a.monthly_salary_gross) : 0,
@@ -105,6 +104,12 @@ export default async function AffiliateDetailPage({ params }: PageProps) {
         action={
           <div className="flex items-center gap-2">
             <AffiliateDeleteButton id={a.id} name={a.full_name} />
+            <Button variant="outline" asChild>
+              <Link href={`/tax/${a.id}`}>
+                <Receipt className="w-4 h-4" />
+                Xem thuế chi tiết
+              </Link>
+            </Button>
             <Button asChild>
               <Link href={`/affiliates/${a.id}/edit`}>
                 <Pencil className="w-4 h-4" />
@@ -200,7 +205,9 @@ export default async function AffiliateDetailPage({ params }: PageProps) {
             <div>
               <div className="text-xs text-muted-foreground">Giảm trừ bản thân</div>
               <div className="font-medium mt-0.5">
-                {a.has_personal_deduction ? "Có (11tr/tháng)" : "Không"}
+                {a.has_personal_deduction
+                  ? `Có (${(PERSONAL_DEDUCTION_MONTHLY / 1_000_000).toFixed(1)}tr/tháng)`
+                  : "Không"}
               </div>
             </div>
             <div>
@@ -209,7 +216,7 @@ export default async function AffiliateDetailPage({ params }: PageProps) {
                 {a.dependent_count} người
                 {a.dependent_count > 0 && (
                   <span className="text-xs text-muted-foreground ml-1">
-                    ({formatCurrency(a.dependent_count * 4_400_000)}/tháng)
+                    ({formatCurrency(a.dependent_count * DEPENDENT_DEDUCTION_MONTHLY)}/tháng)
                   </span>
                 )}
               </div>
@@ -221,13 +228,12 @@ export default async function AffiliateDetailPage({ params }: PageProps) {
               </div>
             </div>
 
-            {/* Dòng mới: Số thuế cần nộp thêm */}
             <div className="pt-3 border-t border-border">
               <div className="text-xs text-muted-foreground">
                 Số thuế TNCN cần phải nộp thêm
               </div>
               <div className="text-[10px] text-muted-foreground mt-0.5 mb-1">
-                Tính theo bậc thu nhập lũy tiến
+                Tính theo bậc thu nhập lũy tiến (5 bậc - Luật 2026)
               </div>
               <TaxAdditionalDisplay ytdTax={ytdTax} hasSalary={a.has_company_salary} />
             </div>
@@ -283,20 +289,16 @@ function TaxAdditionalDisplay({
       </div>
     );
   }
-
   if (ytdTax.status === "even") {
     return (
       <div className="mt-1">
-        <div className="font-medium tabular-nums text-sm">
-          ~0 đ
-        </div>
+        <div className="font-medium tabular-nums text-sm">~0 đ</div>
         <div className="text-xs text-muted-foreground mt-0.5">
           Đã đóng đủ thuế
         </div>
       </div>
     );
   }
-
   if (ytdTax.status === "refund") {
     return (
       <div className="mt-1">
@@ -314,16 +316,12 @@ function TaxAdditionalDisplay({
       </div>
     );
   }
-
-  // owe
   return (
     <div className="mt-1">
       <div className="font-medium tabular-nums text-sm text-warning">
         {formatCurrency(ytdTax.taxAdditional)}
       </div>
-      <div className="text-xs text-warning mt-0.5">
-        Phải nộp thêm
-      </div>
+      <div className="text-xs text-warning mt-0.5">Phải nộp thêm</div>
     </div>
   );
 }
@@ -346,16 +344,13 @@ function StatCard({
     success: "text-success",
     warning: "text-warning",
   }[variant];
-
   return (
     <Card>
       <CardContent className="p-5">
         <div className="flex items-start justify-between">
           <div className="min-w-0 flex-1">
             <p className="text-xs text-muted-foreground font-medium">{label}</p>
-            <p className="text-xl font-semibold mt-2 tabular-nums tracking-tight">
-              {value}
-            </p>
+            <p className="text-xl font-semibold mt-2 tabular-nums tracking-tight">{value}</p>
             <p className="text-xs text-muted-foreground mt-1.5">{subtitle}</p>
           </div>
           <Icon className={`w-4 h-4 ${iconColor} flex-shrink-0`} />
