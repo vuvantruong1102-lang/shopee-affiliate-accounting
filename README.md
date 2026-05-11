@@ -1,87 +1,86 @@
-# Phase 3 Fix — Bỏ rút tiền mặt, đơn giản hóa quy trình nộp tiền
+# Phase 4 — Đối soát Shopee
 
-## 🎯 Thay đổi
+## 🎯 Tính năng
 
-### Quy trình MỚI
+Mỗi tuần Shopee chuyển hoa hồng **2 lần** (mỗi đợt gộp 3-4 ngày). Module này giúp:
 
-```
-Shopee → TK cá nhân Affiliate → [Nộp tiền] → TK ngân hàng công ty
-```
-
-- ❌ **Bỏ** module "Rút tiền mặt"
-- ✅ **Nộp tiền vào NH** chỉ ghi vào **sổ ngân hàng** (không qua sổ tiền mặt)
-- ✅ **Sổ tiền mặt** giờ chỉ dùng cho chi tiêu tiền mặt (lương, văn phòng phẩm...)
-
-### So sánh với Phase 2
-
-| Module | Phase 2 (cũ) | Phase 3 Fix (mới) |
-|---|---|---|
-| Rút tiền mặt | ✓ Có | ✗ Bỏ |
-| Nộp tiền vào NH | Ghi 2 bút toán (cash + bank) | Chỉ ghi 1 bút toán (bank) |
-| Chi tiêu | Cash hoặc Bank | Cash hoặc Bank (không đổi) |
-| Hoa hồng | Không đổi | Không đổi |
+1. **Ghi nhận từng đợt thanh toán** (mã thanh toán + ngày + tổng tiền + chi tiết từng ngày)
+2. **Tự động đối soát** với hoa hồng đã nhập tay → highlight các ngày lệch/thiếu
+3. **Track trạng thái** đã nhận / chưa nhận tiền
+4. **Tổng quan** số đợt đã nhận + chưa nhận
 
 ## 📋 Các bước triển khai
 
-### Bước 1: Upload 3 file MỚI/CẬP NHẬT
+### Bước 1: Chạy SQL migration
+
+Vào Supabase SQL Editor → New query → paste `supabase/migrations/20260511000006_shopee_reconciliation.sql` → Run.
+
+Tạo 2 bảng mới + 2 RPC.
+
+### Bước 2: Upload 9 file lên GitHub
+
+**Lưu ý vị trí đặt file** (như đã gặp lỗi nhiều lần ở các phase trước):
 
 ```
-app/(dashboard)/data-entry/actions.ts           [GHI ĐÈ — bỏ createWithdrawal, sửa createDeposit]
-app/(dashboard)/data-entry/page.tsx             [GHI ĐÈ — bỏ card Rút tiền]
-components/data-entry/deposit-form.tsx          [GHI ĐÈ — bỏ hiển thị "Tiền mặt → NH"]
+types/shopee-reconciliation.ts                              [FILE MỚI]
+app/(dashboard)/reconciliation/actions.ts                   [FILE MỚI]
+app/(dashboard)/reconciliation/page.tsx                     [GHI ĐÈ placeholder]
+app/(dashboard)/reconciliation/new/page.tsx                 [FILE MỚI]
+app/(dashboard)/reconciliation/[id]/page.tsx                [FILE MỚI]
+components/reconciliation/reconciliation-list.tsx           [FILE MỚI]
+components/reconciliation/shopee-payment-form.tsx           [FILE MỚI]
+components/reconciliation/reconcile-table.tsx               [FILE MỚI]
+components/reconciliation/received-toggle.tsx               [FILE MỚI]
+components/reconciliation/payment-delete-button.tsx         [FILE MỚI]
 ```
 
-### Bước 2: XÓA các file/thư mục KHÔNG CẦN
+⚠️ **KHÔNG** tạo các thư mục `components/` bên trong `lib/` (lỗi đã gặp trước đây).
 
-Vào github.dev, xóa:
+### Bước 3: Commit & Push → Vercel auto-deploy
 
-```
-app/(dashboard)/data-entry/withdrawal/         [XÓA CẢ THƯ MỤC]
-components/data-entry/withdrawal-form.tsx      [XÓA]
-```
+Commit message: `Phase 4: Shopee payment reconciliation`
 
-**Cách xóa thư mục trong github.dev:**
-1. Click chuột phải vào thư mục `withdrawal/`
-2. Chọn **Delete**
-3. Xác nhận
+### Bước 4: Test theo thứ tự
 
-### Bước 3: Commit & Push
+1. Vào **Đối soát Shopee** (menu trái) → kỳ vọng thấy trang rỗng + 2 KPI card
+2. Bấm **"Thêm đợt thanh toán"**
+3. Nhập theo dữ liệu mẫu (từ screenshot bạn gửi):
+   - Affiliate: chọn 1
+   - Mã thanh toán: `17393600530260504`
+   - Ngày đối soát: `2026-05-04`
+   - Ngày thanh toán: `2026-05-07`
+   - Bấm **+ Thêm ngày** 3 lần để có 4 dòng:
+     - 29/04/2026 — 32.455.013đ
+     - 30/04/2026 — 23.333.110đ
+     - 01/05/2026 — 40.638.401đ (chính xác là 40.638.401)
+     - 02/05/2026 — 52.566.939đ (chính xác là 52.566.939)
+   - Bấm nút **"↓ Điền vào Tổng gross"** để tự fill: 148.993.463đ
+     - (Hoặc gõ thủ công 148.963.459đ theo Shopee — số trong screenshot là tổng đã làm tròn)
+   - Thuế PIT: 15.043.775đ
+   - Net: 133.919.684đ
+   - 2 dòng validation phải có dấu ✓ xanh
+   - Ngân hàng nhận: `Tien Phong Bank`, 4 số cuối: `2549`
+   - Bấm **Lưu**
+4. Vào trang chi tiết → kiểm tra bảng đối soát:
+   - Nếu chưa nhập hoa hồng ngày 29/04 → hiện badge đỏ "Thiếu"
+   - Nếu đã nhập đúng → hiện badge xanh "Khớp"
+   - Nếu lệch số → hiện badge vàng "Lệch"
+5. Bấm **"Đánh dấu đã nhận"** → trạng thái chuyển
 
-Commit message: `Phase 3 Fix: Remove withdrawal, simplify deposit flow`
+## 💡 Lưu ý
 
-### Bước 4: (Tùy chọn) Dọn dẹp dữ liệu cũ
+1. **Mã thanh toán unique theo affiliate**: nếu nhập trùng mã cùng 1 affiliate → báo lỗi
+2. **Validation real-time**: form kiểm tra Tổng ngày = Gross + Gross - Tax = Net
+3. **Auto-fill thông minh**:
+   - Gõ Gross → tự tính Net (nếu đã có Tax)
+   - Gõ Net → tự tính Tax (Tax = Gross - Net)
+   - Có nút "↓ Điền vào Tổng gross" để auto sum từ các ngày
+4. **Click vào icon ↗ ở dòng "Thiếu"** → đi thẳng đến trang nhập hoa hồng cho affiliate đó
+5. **Xóa đợt**: bấm nút "Xóa đợt này" hai lần để xác nhận (soft delete)
 
-Nếu trước đây bạn đã tạo các giao dịch rút tiền + nộp tiền theo logic cũ, dữ liệu vẫn nằm trong DB. Có 2 cách xử lý:
+## 🔮 Phase 5 (gợi ý cho tương lai)
 
-**Cách A — Giữ nguyên dữ liệu cũ** (đề xuất)
-- Dữ liệu lịch sử vẫn xem được trong sổ tiền mặt + sổ ngân hàng
-- Từ nay nhập mới sẽ theo logic mới
-
-**Cách B — Xóa sạch dữ liệu test**
-Vào Supabase → SQL Editor → chạy:
-
-```sql
--- Soft delete tất cả giao dịch test
-UPDATE cash_transactions SET is_deleted = true WHERE account_id IS NOT NULL;
-UPDATE bank_transactions SET is_deleted = true WHERE cash_transaction_id IS NOT NULL;
-DELETE FROM withdrawals;
-
--- Recompute lại balance
-SELECT recompute_cash_balances();
--- (Bank balance sẽ tự tính lại nếu bạn vào trang bank-book)
-```
-
-## ⚠️ Lưu ý
-
-1. **Bảng `withdrawals` trong DB** vẫn còn (không xóa schema) — chỉ ẩn UI thôi. Nếu sau này cần dùng lại, code vẫn tương thích.
-
-2. **Trang `/affiliates/[id]` hiển thị "Đã rút" / "Đã nộp"**: con số "Đã rút" sẽ không còn cập nhật nữa (vì không nhập rút tiền). Có thể xem xét ẩn dòng này ở phase sau.
-
-3. **Liên kết cash ↔ bank trong DB**: cột `cash_transaction_id` trong `bank_transactions` không còn được dùng cho giao dịch mới, nhưng vẫn giữ schema để tương thích với dữ liệu cũ.
-
-## 🧪 Test sau khi deploy
-
-1. Vào **Nhập liệu** → kỳ vọng: thấy **3 card** (Hoa hồng, Nộp tiền, Chi tiêu), KHÔNG còn card "Rút tiền mặt"
-2. Bấm **"Nộp tiền vào ngân hàng"** → nhập thử 5tr → lưu
-3. Vào **Sổ ngân hàng** → kỳ vọng: thấy giao dịch +5tr với người nộp = tên affiliate
-4. Vào **Sổ tiền mặt** → kỳ vọng: KHÔNG thấy giao dịch nào liên quan đến nộp tiền (sổ tiền mặt giờ chỉ có giao dịch chi tiêu)
+- Auto-link đợt thanh toán với giao dịch "Nộp tiền vào NH" 
+- Báo cáo theo tháng / quý
+- Module thuế TNCN quyết toán cuối năm
+- Audit log đầy đủ
