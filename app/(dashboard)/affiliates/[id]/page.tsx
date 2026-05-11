@@ -87,6 +87,9 @@ export default async function AffiliateDetailPage({ params }: PageProps) {
 
   const status = STATUS_LABEL[a.status];
 
+  // Tính chênh lệch: số tiền chưa nộp = received_net - total_deposited
+  const undeposited = Number(summary.received_net) - Number(summary.total_deposited);
+
   return (
     <div className="space-y-6 animate-fade-in max-w-5xl">
       <div className="flex items-center gap-2 -mb-2">
@@ -130,7 +133,7 @@ export default async function AffiliateDetailPage({ params }: PageProps) {
         <StatCard
           label="Đã thực nhận"
           value={formatCurrency(summary.received_net)}
-          subtitle="Đã vào TK ngân hàng"
+          subtitle="Đã vào TK ngân hàng cá nhân"
           icon={Wallet}
           variant="success"
         />
@@ -144,8 +147,13 @@ export default async function AffiliateDetailPage({ params }: PageProps) {
         <StatCard
           label="Đã nộp vào công ty"
           value={formatCurrency(summary.total_deposited)}
-          subtitle={`Đã rút: ${formatCurrency(summary.total_withdrawn)}`}
+          subtitle={
+            undeposited > 0
+              ? `Còn ${formatCurrency(undeposited)} chưa nộp`
+              : "Đã nộp đầy đủ"
+          }
           icon={Wallet}
+          variant={undeposited > 0 ? "warning" : "success"}
         />
       </div>
 
