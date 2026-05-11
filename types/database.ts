@@ -9,7 +9,6 @@ export type TransactionType = "income" | "expense";
 export type UserRole = "admin" | "accountant" | "viewer";
 export type WithdrawalMethod = "atm" | "counter" | "transfer" | "other";
 
-// Re-export PeriodType từ date-period
 export type PeriodType =
   | "this_month"
   | "last_month"
@@ -111,6 +110,7 @@ export interface BankAccount {
 export interface BankTransaction {
   id: string;
   bank_account_id: string;
+  account_id: string | null; // ✨ Phase 5 Fix: link với affiliate khi là deposit
   trans_date: string;
   trans_type: TransactionType;
   amount: number;
