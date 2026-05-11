@@ -1,86 +1,105 @@
-# Phase 4 — Đối soát Shopee
+# Phase 5 — Thuế TNCN (Cập nhật Luật 2026)
 
 ## 🎯 Tính năng
 
-Mỗi tuần Shopee chuyển hoa hồng **2 lần** (mỗi đợt gộp 3-4 ngày). Module này giúp:
+1. **Cập nhật toàn bộ logic thuế theo Luật mới 2026**:
+   - Biểu thuế 5 bậc (thay 7 bậc cũ)
+   - Giảm trừ bản thân 15,5tr/tháng (thay 11tr)
+   - Giảm trừ phụ thuộc 6,2tr/tháng (thay 4,4tr)
 
-1. **Ghi nhận từng đợt thanh toán** (mã thanh toán + ngày + tổng tiền + chi tiết từng ngày)
-2. **Tự động đối soát** với hoa hồng đã nhập tay → highlight các ngày lệch/thiếu
-3. **Track trạng thái** đã nhận / chưa nhận tiền
-4. **Tổng quan** số đợt đã nhận + chưa nhận
+2. **Trang `/tax` — Tổng quan thuế**:
+   - 2 KPI: Tổng phải nộp thêm / Tổng được hoàn
+   - Bảng danh sách tất cả affiliate với trạng thái thuế
+   - Phần **Căn cứ pháp lý** đầy đủ (luật, nghị quyết, biểu thuế, công thức)
+
+3. **Trang `/tax/[id]` — Chi tiết thuế từng affiliate**:
+   - 4 KPI: Tổng TN, TN tính thuế, Thuế phải nộp, Cần nộp thêm/Được hoàn
+   - **Breakdown step-by-step** chi tiết 5 bước tính thuế
+   - Bảng thu nhập từng tháng trong năm
+   - 2 nút xuất file: **Excel (CSV)** và **HTML quyết toán**
+
+4. **File quyết toán HTML**:
+   - Tự thiết kế (không phải mẫu 02/QTT-TNCN chuẩn)
+   - Có thể chỉnh sửa trước khi in
+   - Ctrl+P trong file HTML để in/Save as PDF
 
 ## 📋 Các bước triển khai
 
-### Bước 1: Chạy SQL migration
-
-Vào Supabase SQL Editor → New query → paste `supabase/migrations/20260511000006_shopee_reconciliation.sql` → Run.
-
-Tạo 2 bảng mới + 2 RPC.
-
-### Bước 2: Upload 9 file lên GitHub
-
-**Lưu ý vị trí đặt file** (như đã gặp lỗi nhiều lần ở các phase trước):
+### Bước 1: Upload các file MỚI/CẬP NHẬT lên GitHub
 
 ```
-types/shopee-reconciliation.ts                              [FILE MỚI]
-app/(dashboard)/reconciliation/actions.ts                   [FILE MỚI]
-app/(dashboard)/reconciliation/page.tsx                     [GHI ĐÈ placeholder]
-app/(dashboard)/reconciliation/new/page.tsx                 [FILE MỚI]
-app/(dashboard)/reconciliation/[id]/page.tsx                [FILE MỚI]
-components/reconciliation/reconciliation-list.tsx           [FILE MỚI]
-components/reconciliation/shopee-payment-form.tsx           [FILE MỚI]
-components/reconciliation/reconcile-table.tsx               [FILE MỚI]
-components/reconciliation/received-toggle.tsx               [FILE MỚI]
-components/reconciliation/payment-delete-button.tsx         [FILE MỚI]
+lib/tax-calculator.ts                                  [GHI ĐÈ]
+lib/ytd-tax.ts                                         [GHI ĐÈ]
+components/affiliates/affiliate-form.tsx               [GHI ĐÈ - đổi label]
+app/(dashboard)/affiliates/[id]/page.tsx               [GHI ĐÈ - đổi label + thêm nút]
+app/(dashboard)/tax/page.tsx                           [GHI ĐÈ - thay placeholder]
+app/(dashboard)/tax/[id]/page.tsx                      [FILE MỚI]
+components/tax/tax-breakdown.tsx                       [FILE MỚI]
+components/tax/tax-export-buttons.tsx                  [FILE MỚI]
 ```
 
-⚠️ **KHÔNG** tạo các thư mục `components/` bên trong `lib/` (lỗi đã gặp trước đây).
+⚠️ **KHÔNG** tạo các file trong `lib/components/` (lỗi đã gặp). 
+- File `tax-breakdown.tsx` phải ở `components/tax/`, KHÔNG ở `lib/components/tax/`.
+- File `affiliate-form.tsx` phải ở `components/affiliates/`, KHÔNG ở `lib/components/affiliates/`.
 
-### Bước 3: Commit & Push → Vercel auto-deploy
+### Bước 2: KHÔNG cần chạy SQL migration
 
-Commit message: `Phase 4: Shopee payment reconciliation`
+Phase 5 chỉ sửa logic tính thuế và thêm UI, không thay đổi database schema. Dữ liệu cũ (hoa hồng, lương) đã có sẵn sẽ tự được tính lại bằng luật mới.
 
-### Bước 4: Test theo thứ tự
+### Bước 3: Commit & Push
 
-1. Vào **Đối soát Shopee** (menu trái) → kỳ vọng thấy trang rỗng + 2 KPI card
-2. Bấm **"Thêm đợt thanh toán"**
-3. Nhập theo dữ liệu mẫu (từ screenshot bạn gửi):
-   - Affiliate: chọn 1
-   - Mã thanh toán: `17393600530260504`
-   - Ngày đối soát: `2026-05-04`
-   - Ngày thanh toán: `2026-05-07`
-   - Bấm **+ Thêm ngày** 3 lần để có 4 dòng:
-     - 29/04/2026 — 32.455.013đ
-     - 30/04/2026 — 23.333.110đ
-     - 01/05/2026 — 40.638.401đ (chính xác là 40.638.401)
-     - 02/05/2026 — 52.566.939đ (chính xác là 52.566.939)
-   - Bấm nút **"↓ Điền vào Tổng gross"** để tự fill: 148.993.463đ
-     - (Hoặc gõ thủ công 148.963.459đ theo Shopee — số trong screenshot là tổng đã làm tròn)
-   - Thuế PIT: 15.043.775đ
-   - Net: 133.919.684đ
-   - 2 dòng validation phải có dấu ✓ xanh
-   - Ngân hàng nhận: `Tien Phong Bank`, 4 số cuối: `2549`
-   - Bấm **Lưu**
-4. Vào trang chi tiết → kiểm tra bảng đối soát:
-   - Nếu chưa nhập hoa hồng ngày 29/04 → hiện badge đỏ "Thiếu"
-   - Nếu đã nhập đúng → hiện badge xanh "Khớp"
-   - Nếu lệch số → hiện badge vàng "Lệch"
-5. Bấm **"Đánh dấu đã nhận"** → trạng thái chuyển
+Commit message: `Phase 5: Tax TNCN module with 2026 law update`
 
-## 💡 Lưu ý
+### Bước 4: Đợi Vercel deploy → Test
 
-1. **Mã thanh toán unique theo affiliate**: nếu nhập trùng mã cùng 1 affiliate → báo lỗi
-2. **Validation real-time**: form kiểm tra Tổng ngày = Gross + Gross - Tax = Net
-3. **Auto-fill thông minh**:
-   - Gõ Gross → tự tính Net (nếu đã có Tax)
-   - Gõ Net → tự tính Tax (Tax = Gross - Net)
-   - Có nút "↓ Điền vào Tổng gross" để auto sum từ các ngày
-4. **Click vào icon ↗ ở dòng "Thiếu"** → đi thẳng đến trang nhập hoa hồng cho affiliate đó
-5. **Xóa đợt**: bấm nút "Xóa đợt này" hai lần để xác nhận (soft delete)
+1. Vào **Thuế TNCN** (menu trái) — kỳ vọng thấy:
+   - 2 KPI tổng (phải nộp / được hoàn)
+   - Bảng danh sách affiliate
+   - Phần "Căn cứ pháp lý" có biểu thuế 5 bậc
+2. Click vào 1 affiliate → trang chi tiết `/tax/[id]`
+3. Kiểm tra **Breakdown chi tiết** có đủ 5 bước
+4. Bấm **"Tải Excel"** → mở file CSV bằng Excel, có dữ liệu hàng tháng + bảng tính thuế
+5. Bấm **"Tải mẫu quyết toán"** → mở file HTML trong browser:
+   - File hiển thị đẹp, có chữ ký
+   - Ctrl+P → "Save as PDF" để lưu PDF
+   - Có thể mở file HTML bằng Word để chỉnh sửa rồi in
 
-## 🔮 Phase 5 (gợi ý cho tương lai)
+## ⚠️ Lưu ý quan trọng
 
-- Auto-link đợt thanh toán với giao dịch "Nộp tiền vào NH" 
-- Báo cáo theo tháng / quý
-- Module thuế TNCN quyết toán cuối năm
-- Audit log đầy đủ
+### Số liệu được cập nhật
+
+| Mục | Trước (cũ) | Phase 5 (mới) |
+|---|---|---|
+| Giảm trừ bản thân/tháng | 11.000.000đ | **15.500.000đ** |
+| Giảm trừ phụ thuộc/tháng | 4.400.000đ | **6.200.000đ** |
+| Số bậc thuế | 7 bậc | **5 bậc** |
+| Thuế suất bậc 1 | 5% (đến 5tr) | **5% (đến 10tr)** |
+| Thuế suất bậc 2 | 10% (5-10tr) | **10% (10-30tr)** |
+| Thuế suất cao nhất | 35% (trên 80tr) | **35% (trên 100tr)** |
+
+### Sau khi deploy
+
+- **Trang affiliate cũ**: tất cả tính toán "Số thuế cần nộp thêm" sẽ được tính lại theo luật mới → con số có thể THẤP HƠN trước
+- Form affiliate sẽ hiển thị label mới (15,5tr và 6,2tr)
+
+### Khấu trừ vãng lai 10% (KHÔNG ĐỔI)
+
+Vẫn áp dụng cho hoa hồng Shopee ≥ 2.000.000đ/lần. Logic tính `gross → net` không thay đổi.
+
+## 🐛 Troubleshooting
+
+**Trang `/tax` báo lỗi build "Module not found"?**
+→ Kiểm tra file `components/tax/tax-breakdown.tsx` và `components/tax/tax-export-buttons.tsx` đặt đúng chỗ.
+
+**Bấm "Tải mẫu quyết toán" không có gì xảy ra?**
+→ Kiểm tra browser console (F12) xem có lỗi không. Có thể browser chặn pop-up — cho phép trong cài đặt.
+
+**Số thuế hiển thị khác trước khi cập nhật?**
+→ Đúng rồi. Luật mới có giảm trừ cao hơn → thuế thấp hơn. Đây là tính năng, không phải bug.
+
+## 🔮 Có thể làm tiếp ở Phase 6 (nếu cần)
+
+- Tải file mẫu 02/QTT-TNCN chính thức (rất phức tạp, 70+ ô)
+- Tính chi tiết các khoản BHXH/BHYT/BHTN nếu có
+- Module dependents (đăng ký người phụ thuộc)
+- So sánh thuế năm này vs năm trước
