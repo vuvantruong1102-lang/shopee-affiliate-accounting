@@ -4,7 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 
 // ============================================================================
-// 1. COMMISSION (Hoa hồng) - giữ nguyên Phase 2
+// 1. COMMISSION (Hoa hồng) - giữ nguyên
 // ============================================================================
 export interface CommissionInput {
   account_id: string;
@@ -56,9 +56,8 @@ export async function createCommission(input: CommissionInput) {
 
 // ============================================================================
 // 2. DEPOSIT (Affiliate nộp tiền vào TK ngân hàng công ty)
-// THAY ĐỔI Phase 3: CHỈ ghi vào bank_transactions, không ghi cash_transactions.
-// Lý do: affiliate cầm tiền mặt từ TK cá nhân đi nộp trực tiếp tại quầy NH,
-// không qua quỹ tiền mặt của công ty.
+// 
+// THAY ĐỔI Phase 5 Fix: lưu thêm account_id để đếm "Đã nộp vào công ty" đúng
 // ============================================================================
 export interface DepositInput {
   account_id: string;
@@ -80,13 +79,12 @@ export async function createDeposit(input: DepositInput) {
     .from("bank_transactions")
     .insert({
       bank_account_id: input.bank_account_id,
+      account_id: input.account_id, // ✨ Lưu account_id để link với affiliate
       trans_date: input.trans_date,
       trans_type: "income",
       amount: input.amount,
       description,
       counterparty_name: input.depositor_name || null,
-      // Lưu account_id vào reference để track affiliate nào nộp tiền
-      // (bank_transactions không có cột account_id nhưng có thể dùng counterparty_name)
       created_by: user.id,
     })
     .select()
@@ -96,6 +94,7 @@ export async function createDeposit(input: DepositInput) {
 
   revalidatePath("/bank-book");
   revalidatePath("/dashboard");
+  revalidatePath("/affiliates");
   revalidatePath(`/affiliates/${input.account_id}`);
   return { data };
 }
