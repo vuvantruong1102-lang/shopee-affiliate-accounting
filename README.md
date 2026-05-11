@@ -1,72 +1,87 @@
-# Phase 2 Update — Thêm trường lương công ty + Thuế YTD
+# Phase 3 Fix — Bỏ rút tiền mặt, đơn giản hóa quy trình nộp tiền
 
-## 🎯 Tính năng mới
+## 🎯 Thay đổi
 
-1. **Trường "Thu nhập khác ngoài Shopee"** trong form affiliate:
-   - Section collapsible, mặc định đóng (kín đáo, không gây nhiễu cho phần lớn affiliate không có lương)
-   - Cho phép nhập: lương tháng (gross) + thuế công ty đã khấu trừ/tháng
-
-2. **Hiển thị "Số thuế TNCN cần phải nộp thêm"** ở trang chi tiết affiliate:
-   - Tính theo bậc lũy tiến năm hiện tại (YTD)
-   - Cộng dồn lương công ty + hoa hồng Shopee
-   - 3 trạng thái: Phải nộp thêm (vàng), Được hoàn (xanh), Đã đóng đủ (xám)
-
-## 📋 Các bước cập nhật
-
-### Bước 1: Chạy SQL migration mới
-
-Vào Supabase Dashboard → SQL Editor → New query → paste file `supabase/migrations/20260511000004_add_salary_fields.sql` → Run.
-
-Migration này thêm 3 cột vào bảng `affiliate_accounts`:
-- `has_company_salary` (BOOLEAN)
-- `monthly_salary_gross` (DECIMAL)
-- `monthly_salary_tax_withheld` (DECIMAL)
-
-### Bước 2: Cập nhật 5 file code
-
-| File | Trạng thái |
-|------|-----------|
-| `types/database.ts` | Ghi đè (thêm 3 trường) |
-| `lib/ytd-tax.ts` | File mới |
-| `app/(dashboard)/affiliates/actions.ts` | Ghi đè |
-| `app/(dashboard)/affiliates/[id]/page.tsx` | Ghi đè |
-| `components/affiliates/affiliate-form.tsx` | Ghi đè |
-
-### Bước 3: Commit & Push → Vercel auto-deploy
-
-### Bước 4: Test
-
-1. Vào 1 affiliate đã có → bấm Chỉnh sửa
-2. Cuộn xuống section "Thông tin thuế TNCN"
-3. Bấm **"Thu nhập khác ngoài Shopee"** (mặc định đóng) để mở
-4. Tick "Nhận lương từ công ty" → nhập lương, lưu
-5. Quay lại trang chi tiết → kiểm tra dòng "Số thuế TNCN cần phải nộp thêm" hiển thị đúng
-
-## 🧮 Công thức tính
+### Quy trình MỚI
 
 ```
-Tổng TN YTD = (Lương tháng × số tháng) + HH Shopee gross YTD
-Giảm trừ YTD = (11tr + 4.4tr × người PT) × số tháng
-TN chịu thuế = max(0, Tổng TN - Giảm trừ)
-Bình quân tháng = TN chịu thuế / số tháng
-Thuế/tháng = tính lũy tiến 7 bậc theo bình quân
-Thuế phải nộp YTD = Thuế/tháng × số tháng
-Đã khấu trừ = (Công ty × số tháng) + Shopee 10%
-Cần nộp thêm = Thuế phải nộp − Đã khấu trừ
+Shopee → TK cá nhân Affiliate → [Nộp tiền] → TK ngân hàng công ty
 ```
 
-## 💡 Ví dụ
+- ❌ **Bỏ** module "Rút tiền mặt"
+- ✅ **Nộp tiền vào NH** chỉ ghi vào **sổ ngân hàng** (không qua sổ tiền mặt)
+- ✅ **Sổ tiền mặt** giờ chỉ dùng cho chi tiêu tiền mặt (lương, văn phòng phẩm...)
 
-**Người A: lương 10tr/tháng, HH Shopee 50tr (sau 5 tháng)**
-- Tổng TN: 100tr
-- Giảm trừ: 55tr (11tr × 5)
-- TN chịu thuế: 45tr → bình quân 9tr/tháng
-- Thuế: ~3.25tr
-- Shopee đã KT: 5tr → **được hoàn 1.75tr**
+### So sánh với Phase 2
 
-**Người B: lương 30tr/tháng, HH Shopee 60tr (sau 6 tháng), 1 người PT**
-- Tổng TN: 240tr
-- Giảm trừ: 92.4tr
-- TN chịu thuế: 147.6tr → bình quân 24.6tr/tháng
-- Thuế: ~19.62tr
-- Đã KT: 18tr → **phải nộp thêm 1.62tr**
+| Module | Phase 2 (cũ) | Phase 3 Fix (mới) |
+|---|---|---|
+| Rút tiền mặt | ✓ Có | ✗ Bỏ |
+| Nộp tiền vào NH | Ghi 2 bút toán (cash + bank) | Chỉ ghi 1 bút toán (bank) |
+| Chi tiêu | Cash hoặc Bank | Cash hoặc Bank (không đổi) |
+| Hoa hồng | Không đổi | Không đổi |
+
+## 📋 Các bước triển khai
+
+### Bước 1: Upload 3 file MỚI/CẬP NHẬT
+
+```
+app/(dashboard)/data-entry/actions.ts           [GHI ĐÈ — bỏ createWithdrawal, sửa createDeposit]
+app/(dashboard)/data-entry/page.tsx             [GHI ĐÈ — bỏ card Rút tiền]
+components/data-entry/deposit-form.tsx          [GHI ĐÈ — bỏ hiển thị "Tiền mặt → NH"]
+```
+
+### Bước 2: XÓA các file/thư mục KHÔNG CẦN
+
+Vào github.dev, xóa:
+
+```
+app/(dashboard)/data-entry/withdrawal/         [XÓA CẢ THƯ MỤC]
+components/data-entry/withdrawal-form.tsx      [XÓA]
+```
+
+**Cách xóa thư mục trong github.dev:**
+1. Click chuột phải vào thư mục `withdrawal/`
+2. Chọn **Delete**
+3. Xác nhận
+
+### Bước 3: Commit & Push
+
+Commit message: `Phase 3 Fix: Remove withdrawal, simplify deposit flow`
+
+### Bước 4: (Tùy chọn) Dọn dẹp dữ liệu cũ
+
+Nếu trước đây bạn đã tạo các giao dịch rút tiền + nộp tiền theo logic cũ, dữ liệu vẫn nằm trong DB. Có 2 cách xử lý:
+
+**Cách A — Giữ nguyên dữ liệu cũ** (đề xuất)
+- Dữ liệu lịch sử vẫn xem được trong sổ tiền mặt + sổ ngân hàng
+- Từ nay nhập mới sẽ theo logic mới
+
+**Cách B — Xóa sạch dữ liệu test**
+Vào Supabase → SQL Editor → chạy:
+
+```sql
+-- Soft delete tất cả giao dịch test
+UPDATE cash_transactions SET is_deleted = true WHERE account_id IS NOT NULL;
+UPDATE bank_transactions SET is_deleted = true WHERE cash_transaction_id IS NOT NULL;
+DELETE FROM withdrawals;
+
+-- Recompute lại balance
+SELECT recompute_cash_balances();
+-- (Bank balance sẽ tự tính lại nếu bạn vào trang bank-book)
+```
+
+## ⚠️ Lưu ý
+
+1. **Bảng `withdrawals` trong DB** vẫn còn (không xóa schema) — chỉ ẩn UI thôi. Nếu sau này cần dùng lại, code vẫn tương thích.
+
+2. **Trang `/affiliates/[id]` hiển thị "Đã rút" / "Đã nộp"**: con số "Đã rút" sẽ không còn cập nhật nữa (vì không nhập rút tiền). Có thể xem xét ẩn dòng này ở phase sau.
+
+3. **Liên kết cash ↔ bank trong DB**: cột `cash_transaction_id` trong `bank_transactions` không còn được dùng cho giao dịch mới, nhưng vẫn giữ schema để tương thích với dữ liệu cũ.
+
+## 🧪 Test sau khi deploy
+
+1. Vào **Nhập liệu** → kỳ vọng: thấy **3 card** (Hoa hồng, Nộp tiền, Chi tiêu), KHÔNG còn card "Rút tiền mặt"
+2. Bấm **"Nộp tiền vào ngân hàng"** → nhập thử 5tr → lưu
+3. Vào **Sổ ngân hàng** → kỳ vọng: thấy giao dịch +5tr với người nộp = tên affiliate
+4. Vào **Sổ tiền mặt** → kỳ vọng: KHÔNG thấy giao dịch nào liên quan đến nộp tiền (sổ tiền mặt giờ chỉ có giao dịch chi tiêu)
