@@ -4,7 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 
 // ============================================================================
-// 1. COMMISSION (Hoa hồng)
+// 1. COMMISSION (Hoa hồng) - giữ nguyên Phase 2
 // ============================================================================
 export interface CommissionInput {
   account_id: string;
@@ -55,41 +55,10 @@ export async function createCommission(input: CommissionInput) {
 }
 
 // ============================================================================
-// 2. WITHDRAWAL (Rút tiền mặt từ TK cá nhân)
-// ============================================================================
-export interface WithdrawalInput {
-  account_id: string;
-  withdraw_date: string;
-  amount: number;
-  method: "atm" | "counter" | "transfer" | "other";
-  description?: string;
-}
-
-export async function createWithdrawal(input: WithdrawalInput) {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return { error: "Bạn cần đăng nhập" };
-
-  const { data, error } = await supabase
-    .from("withdrawals")
-    .insert({
-      ...input,
-      description: input.description || null,
-      created_by: user.id,
-    })
-    .select()
-    .single();
-
-  if (error) return { error: error.message };
-
-  revalidatePath("/affiliates");
-  revalidatePath(`/affiliates/${input.account_id}`);
-  return { data };
-}
-
-// ============================================================================
-// 3. DEPOSIT (Nộp tiền mặt vào TK ngân hàng công ty)
-// Đây là giao dịch KÉP: cash_transaction (chi) + bank_transaction (thu)
+// 2. DEPOSIT (Affiliate nộp tiền vào TK ngân hàng công ty)
+// THAY ĐỔI Phase 3: CHỈ ghi vào bank_transactions, không ghi cash_transactions.
+// Lý do: affiliate cầm tiền mặt từ TK cá nhân đi nộp trực tiếp tại quầy NH,
+// không qua quỹ tiền mặt của công ty.
 // ============================================================================
 export interface DepositInput {
   account_id: string;
@@ -105,26 +74,9 @@ export async function createDeposit(input: DepositInput) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Bạn cần đăng nhập" };
 
-  // Bước 1: Ghi vào cash_transactions (INCOME — affiliate nộp tiền)
   const description = input.description || `Nộp tiền HH affiliate`;
-  const { data: cashTrans, error: cashError } = await supabase
-    .from("cash_transactions")
-    .insert({
-      trans_date: input.trans_date,
-      trans_type: "income",
-      amount: input.amount,
-      description,
-      account_id: input.account_id,
-      depositor_name: input.depositor_name || null,
-      created_by: user.id,
-    })
-    .select()
-    .single();
 
-  if (cashError) return { error: cashError.message };
-
-  // Bước 2: Ghi vào bank_transactions (INCOME — tiền vào ngân hàng)
-  const { error: bankError } = await supabase
+  const { data, error } = await supabase
     .from("bank_transactions")
     .insert({
       bank_account_id: input.bank_account_id,
@@ -132,26 +84,24 @@ export async function createDeposit(input: DepositInput) {
       trans_type: "income",
       amount: input.amount,
       description,
-      cash_transaction_id: cashTrans.id,
       counterparty_name: input.depositor_name || null,
+      // Lưu account_id vào reference để track affiliate nào nộp tiền
+      // (bank_transactions không có cột account_id nhưng có thể dùng counterparty_name)
       created_by: user.id,
-    });
+    })
+    .select()
+    .single();
 
-  if (bankError) {
-    // Rollback: xóa cash_transaction nếu bank fail
-    await supabase.from("cash_transactions").delete().eq("id", cashTrans.id);
-    return { error: bankError.message };
-  }
+  if (error) return { error: error.message };
 
-  revalidatePath("/cash-book");
   revalidatePath("/bank-book");
   revalidatePath("/dashboard");
   revalidatePath(`/affiliates/${input.account_id}`);
-  return { data: cashTrans };
+  return { data };
 }
 
 // ============================================================================
-// 4. EXPENSE (Chi tiêu - từ ngân hàng hoặc tiền mặt)
+// 3. EXPENSE (Chi tiêu - giữ nguyên Phase 2)
 // ============================================================================
 export interface ExpenseInput {
   trans_date: string;

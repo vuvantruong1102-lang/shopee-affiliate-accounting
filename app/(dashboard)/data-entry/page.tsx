@@ -4,7 +4,6 @@ import { createClient } from "@/lib/supabase/server";
 import {
   CircleDollarSign,
   Banknote,
-  ArrowDownToLine,
   Receipt,
 } from "lucide-react";
 import Link from "next/link";
@@ -12,7 +11,6 @@ import Link from "next/link";
 export default async function DataEntryPage() {
   const supabase = await createClient();
 
-  // Kiểm tra điều kiện tiên quyết
   const [{ count: affiliateCount }, { count: bankCount }] = await Promise.all([
     supabase
       .from("affiliate_accounts")
@@ -82,7 +80,7 @@ export default async function DataEntryPage() {
         </Card>
       )}
 
-      <div className="grid gap-4 md:grid-cols-2">
+      <div className="grid gap-4 md:grid-cols-3">
         <ActionCard
           href="/data-entry/commission"
           icon={CircleDollarSign}
@@ -92,18 +90,10 @@ export default async function DataEntryPage() {
           disabled={!hasAffiliates}
         />
         <ActionCard
-          href="/data-entry/withdrawal"
-          icon={ArrowDownToLine}
-          title="Rút tiền mặt"
-          description="Ghi nhận khi affiliate rút tiền mặt từ TK cá nhân"
-          color="warning"
-          disabled={!hasAffiliates}
-        />
-        <ActionCard
           href="/data-entry/deposit"
           icon={Banknote}
           title="Nộp tiền vào ngân hàng"
-          description="Affiliate nộp tiền mặt vào TK ngân hàng công ty"
+          description="Affiliate nộp tiền vào TK ngân hàng công ty (ghi vào sổ ngân hàng)"
           color="success"
           disabled={!hasAffiliates || !hasBank}
         />
