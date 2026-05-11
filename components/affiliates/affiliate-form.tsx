@@ -6,7 +6,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Loader2, Save } from "lucide-react";
+import { CurrencyInput } from "@/components/shared/currency-input";
+import { Loader2, Save, ChevronDown, ChevronRight } from "lucide-react";
 import { toast } from "sonner";
 import {
   createAffiliate,
@@ -23,6 +24,11 @@ interface Props {
 export function AffiliateForm({ mode, initialData }: Props) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
+  
+  // Mặc định đóng section "thu nhập khác" để không gây rối
+  const [showOtherIncome, setShowOtherIncome] = useState(
+    initialData?.has_company_salary ?? false,
+  );
 
   const [form, setForm] = useState<AffiliateFormData>({
     full_name: initialData?.full_name ?? "",
@@ -39,6 +45,9 @@ export function AffiliateForm({ mode, initialData }: Props) {
     shopee_affiliate_id: initialData?.shopee_affiliate_id ?? "",
     has_personal_deduction: initialData?.has_personal_deduction ?? true,
     dependent_count: initialData?.dependent_count ?? 0,
+    has_company_salary: initialData?.has_company_salary ?? false,
+    monthly_salary_gross: initialData?.monthly_salary_gross ?? 0,
+    monthly_salary_tax_withheld: initialData?.monthly_salary_tax_withheld ?? 0,
     status: initialData?.status ?? "active",
     start_date:
       initialData?.start_date ?? new Date().toISOString().split("T")[0],
@@ -60,12 +69,17 @@ export function AffiliateForm({ mode, initialData }: Props) {
       return;
     }
 
+    // Nếu không có lương công ty, reset số liệu về 0
+    const submitData: AffiliateFormData = form.has_company_salary
+      ? form
+      : { ...form, monthly_salary_gross: 0, monthly_salary_tax_withheld: 0 };
+
     setLoading(true);
     try {
       const result =
         mode === "create"
-          ? await createAffiliate(form)
-          : await updateAffiliate(initialData!.id, form);
+          ? await createAffiliate(submitData)
+          : await updateAffiliate(initialData!.id, submitData);
 
       if ("error" in result && result.error) {
         toast.error(result.error);
@@ -250,6 +264,75 @@ export function AffiliateForm({ mode, initialData }: Props) {
               Mỗi người phụ thuộc được giảm trừ 4.4 triệu/tháng
             </p>
           </FormField>
+
+          {/* Section "Thu nhập khác" - thiết kế kín đáo, collapsible */}
+          <div className="border-t border-border pt-4">
+            <button
+              type="button"
+              onClick={() => setShowOtherIncome(!showOtherIncome)}
+              className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
+            >
+              {showOtherIncome ? (
+                <ChevronDown className="w-3.5 h-3.5" />
+              ) : (
+                <ChevronRight className="w-3.5 h-3.5" />
+              )}
+              Thu nhập khác ngoài Shopee
+              {form.has_company_salary && (
+                <span className="text-xs px-1.5 py-0.5 rounded bg-muted text-muted-foreground ml-1">
+                  Có
+                </span>
+              )}
+            </button>
+
+            {showOtherIncome && (
+              <div className="mt-4 pl-5 space-y-4 border-l-2 border-border">
+                <div className="flex items-start gap-3">
+                  <input
+                    type="checkbox"
+                    id="has_company_salary"
+                    checked={form.has_company_salary}
+                    onChange={(e) => update("has_company_salary", e.target.checked)}
+                    className="mt-0.5 w-4 h-4"
+                  />
+                  <label htmlFor="has_company_salary" className="cursor-pointer flex-1">
+                    <div className="text-sm font-medium">
+                      Nhận lương từ công ty (ngoài hoa hồng Shopee)
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Áp dụng cho người đứng tên đồng thời làm việc tại công ty.
+                      Dùng để tính chính xác hơn số thuế TNCN cần nộp thêm cuối năm.
+                    </p>
+                  </label>
+                </div>
+
+                {form.has_company_salary && (
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <FormField label="Lương tháng trung bình (gross)">
+                      <CurrencyInput
+                        value={form.monthly_salary_gross}
+                        onChange={(v) => update("monthly_salary_gross", v)}
+                      />
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Lương trước thuế, trước BHXH
+                      </p>
+                    </FormField>
+                    <FormField label="Thuế TNCN công ty khấu trừ/tháng">
+                      <CurrencyInput
+                        value={form.monthly_salary_tax_withheld}
+                        onChange={(v) =>
+                          update("monthly_salary_tax_withheld", v)
+                        }
+                      />
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Số thuế công ty đã trừ vào lương mỗi tháng. Để 0 nếu chưa biết.
+                      </p>
+                    </FormField>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </CardContent>
       </Card>
 
