@@ -20,6 +20,10 @@ export interface AffiliateFormData {
   shopee_affiliate_id?: string;
   has_personal_deduction: boolean;
   dependent_count: number;
+  // Lương từ công ty (cho người đứng tên đi làm có lương)
+  has_company_salary: boolean;
+  monthly_salary_gross: number;
+  monthly_salary_tax_withheld: number;
   status: AffiliateStatus;
   start_date: string;
   notes?: string;
