@@ -9,6 +9,14 @@ export type TransactionType = "income" | "expense";
 export type UserRole = "admin" | "accountant" | "viewer";
 export type WithdrawalMethod = "atm" | "counter" | "transfer" | "other";
 
+// Re-export PeriodType từ date-period
+export type PeriodType =
+  | "this_month"
+  | "last_month"
+  | "this_quarter"
+  | "this_year"
+  | "custom";
+
 export interface AffiliateAccount {
   id: string;
   full_name: string;
@@ -25,7 +33,6 @@ export interface AffiliateAccount {
   shopee_affiliate_id: string | null;
   has_personal_deduction: boolean;
   dependent_count: number;
-  // NEW: lương từ công ty
   has_company_salary: boolean;
   monthly_salary_gross: number;
   monthly_salary_tax_withheld: number;
@@ -85,6 +92,7 @@ export interface CashTransaction {
   attachment_url: string | null;
   notes: string | null;
   created_at: string;
+  is_deleted: boolean;
 }
 
 export interface BankAccount {
@@ -114,6 +122,7 @@ export interface BankTransaction {
   reference_no: string | null;
   balance_after: number | null;
   created_at: string;
+  is_deleted: boolean;
 }
 
 export interface ExpenseCategory {
