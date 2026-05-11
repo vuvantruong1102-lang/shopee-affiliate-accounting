@@ -1,29 +1,38 @@
 /**
- * TÍNH THUẾ TNCN THEO LUẬT VIỆT NAM
+ * TÍNH THUẾ TNCN THEO LUẬT VIỆT NAM 2026
  * 
- * Tham chiếu:
- * - Luật Thuế TNCN 04/2007/QH12 và sửa đổi
- * - Thông tư 111/2013/TT-BTC
- * - Nghị quyết 954/2020/UBTVQH14 (mức giảm trừ gia cảnh)
+ * Căn cứ pháp lý:
+ * - Luật Thuế TNCN 2025 (số 109/2025/QH15) — áp dụng từ kỳ tính thuế 2026
+ * - Nghị quyết 110/2025/UBTVQH15 — điều chỉnh mức giảm trừ gia cảnh
  * 
- * Áp dụng cho phần mềm: Shopee đã khấu trừ 10% tại nguồn (thu nhập vãng lai).
+ * Thay đổi quan trọng từ 01/01/2026:
+ * - Biểu thuế: 7 bậc → 5 bậc (giãn cách rộng hơn)
+ * - Giảm trừ bản thân: 11tr → 15.5tr/tháng (186tr/năm)
+ * - Giảm trừ người phụ thuộc: 4.4tr → 6.2tr/tháng (74.4tr/năm)
  */
 
-export const PERSONAL_DEDUCTION_MONTHLY = 11_000_000;
-export const PERSONAL_DEDUCTION_YEARLY = 132_000_000;
-export const DEPENDENT_DEDUCTION_MONTHLY = 4_400_000;
-export const DEPENDENT_DEDUCTION_YEARLY = 52_800_000;
+// ============================================================================
+// HẰNG SỐ THEO LUẬT 2026
+// ============================================================================
+export const PERSONAL_DEDUCTION_MONTHLY = 15_500_000;
+export const PERSONAL_DEDUCTION_YEARLY = 186_000_000;
+export const DEPENDENT_DEDUCTION_MONTHLY = 6_200_000;
+export const DEPENDENT_DEDUCTION_YEARLY = 74_400_000;
+
+// Khấu trừ thuế vãng lai (không đổi theo luật mới)
 export const VANG_LAI_TAX_RATE = 0.10;
 export const VANG_LAI_THRESHOLD = 2_000_000;
 
+// ============================================================================
+// BIỂU THUẾ LŨY TIẾN 5 BẬC (LUẬT 2026)
+// Theo Khoản 2, Điều 9 Luật Thuế TNCN 2025 (109/2025/QH15)
+// ============================================================================
 export const TAX_BRACKETS_MONTHLY = [
-  { upTo: 5_000_000, rate: 0.05, base: 0 },
-  { upTo: 10_000_000, rate: 0.10, base: 250_000 },
-  { upTo: 18_000_000, rate: 0.15, base: 750_000 },
-  { upTo: 32_000_000, rate: 0.20, base: 1_950_000 },
-  { upTo: 52_000_000, rate: 0.25, base: 4_750_000 },
-  { upTo: 80_000_000, rate: 0.30, base: 9_750_000 },
-  { upTo: Infinity, rate: 0.35, base: 18_150_000 },
+  { upTo: 10_000_000, rate: 0.05, base: 0 },
+  { upTo: 30_000_000, rate: 0.10, base: 500_000 },        // 10tr×5%
+  { upTo: 60_000_000, rate: 0.20, base: 2_500_000 },      // 500k + 20tr×10%
+  { upTo: 100_000_000, rate: 0.30, base: 8_500_000 },     // 2.5tr + 30tr×20%
+  { upTo: Infinity, rate: 0.35, base: 20_500_000 },       // 8.5tr + 40tr×30%
 ] as const;
 
 export interface TaxCalculationInput {
@@ -50,6 +59,10 @@ export interface TaxCalculationResult {
   }>;
 }
 
+// ============================================================================
+// TÍNH THUẾ THEO BIỂU LŨY TIẾN (cho 1 tháng)
+// Sử dụng công thức rút gọn: Tax = TNTT × rate − base
+// ============================================================================
 export function calculateTaxMonthly(taxableIncomeMonthly: number): number {
   if (taxableIncomeMonthly <= 0) return 0;
   let tax = 0;
@@ -66,6 +79,9 @@ export function calculateTaxMonthly(taxableIncomeMonthly: number): number {
   return Math.round(tax);
 }
 
+// ============================================================================
+// TÍNH THUẾ CẢ NĂM (cho quyết toán)
+// ============================================================================
 export function calculateAnnualTax(
   input: TaxCalculationInput,
 ): TaxCalculationResult {
@@ -117,6 +133,10 @@ export function calculateAnnualTax(
   };
 }
 
+// ============================================================================
+// KHẤU TRỪ THUẾ VÃNG LAI (10% cho thu nhập ≥ 2tr/lần)
+// Áp dụng cho hoa hồng Shopee
+// ============================================================================
 export function calculateWithholdingTax(grossAmount: number): number {
   if (grossAmount < VANG_LAI_THRESHOLD) return 0;
   return Math.round(grossAmount * VANG_LAI_TAX_RATE);
@@ -124,11 +144,7 @@ export function calculateWithholdingTax(grossAmount: number): number {
 
 /**
  * Tính ngược từ NET → GROSS + TAX
- * 
- * Logic:
- * - Nếu net đủ lớn (net ≥ 1.8tr, tức gross ≥ 2tr) → có khấu trừ 10%
- *   gross = net / 0.9, tax = gross - net = net / 9
- * - Nếu nhỏ hơn → không khấu trừ, gross = net, tax = 0
+ * Logic không đổi (khấu trừ 10% vẫn áp dụng theo TT 111/2013)
  */
 export function calculateGrossFromNet(netAmount: number): {
   grossAmount: number;
@@ -138,10 +154,7 @@ export function calculateGrossFromNet(netAmount: number): {
   if (netAmount <= 0) {
     return { grossAmount: 0, taxWithheld: 0, hasWithholding: false };
   }
-
-  // Ngưỡng net = 1.8tr (vì gross 2tr → net 1.8tr sau khấu trừ 10%)
   const NET_THRESHOLD = VANG_LAI_THRESHOLD * (1 - VANG_LAI_TAX_RATE);
-
   if (netAmount < NET_THRESHOLD) {
     return {
       grossAmount: netAmount,
@@ -149,10 +162,8 @@ export function calculateGrossFromNet(netAmount: number): {
       hasWithholding: false,
     };
   }
-
   const grossAmount = Math.round(netAmount / (1 - VANG_LAI_TAX_RATE));
   const taxWithheld = grossAmount - netAmount;
-
   return {
     grossAmount,
     taxWithheld,
@@ -160,9 +171,6 @@ export function calculateGrossFromNet(netAmount: number): {
   };
 }
 
-/**
- * Tính từ GROSS → TAX + NET (ngược chiều với hàm trên)
- */
 export function calculateNetFromGross(grossAmount: number): {
   netAmount: number;
   taxWithheld: number;
