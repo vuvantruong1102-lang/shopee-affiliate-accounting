@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { CurrencyInput } from "@/components/shared/currency-input";
-import { Loader2, Save, ArrowRight } from "lucide-react";
+import { Loader2, Save, Building2, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
 import { createDeposit } from "@/app/(dashboard)/data-entry/actions";
 import type { AffiliateAccount, BankAccount } from "@/types/database";
@@ -53,7 +53,7 @@ export function DepositForm({ affiliates, banks }: Props) {
         toast.error(result.error);
         return;
       }
-      toast.success("Đã ghi nhận nộp tiền");
+      toast.success("Đã ghi nhận tiền vào ngân hàng");
       router.push("/data-entry");
     } finally {
       setLoading(false);
@@ -62,6 +62,7 @@ export function DepositForm({ affiliates, banks }: Props) {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
+      {/* Visualize flow */}
       <Card>
         <CardContent className="p-5">
           <div className="flex items-center justify-between text-sm">
@@ -70,9 +71,11 @@ export function DepositForm({ affiliates, banks }: Props) {
               <div className="font-medium mt-0.5 truncate">
                 {selectedAffiliate?.full_name ?? "—"}
               </div>
-              <div className="text-xs text-muted-foreground mt-0.5">
-                Tiền mặt
-              </div>
+              {selectedAffiliate?.bank_name && (
+                <div className="text-xs text-muted-foreground mt-0.5">
+                  {selectedAffiliate.bank_name}
+                </div>
+              )}
             </div>
             <ArrowRight className="w-5 h-5 text-muted-foreground mx-4 flex-shrink-0" />
             <div className="flex-1 text-center">
@@ -90,7 +93,10 @@ export function DepositForm({ affiliates, banks }: Props) {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Thông tin nộp tiền</CardTitle>
+          <CardTitle className="text-base">Thông tin giao dịch</CardTitle>
+          <p className="text-xs text-muted-foreground">
+            Giao dịch sẽ được ghi vào <strong>Sổ ngân hàng</strong>
+          </p>
         </CardHeader>
         <CardContent className="space-y-4">
           <div>
@@ -156,16 +162,19 @@ export function DepositForm({ affiliates, banks }: Props) {
               onChange={(e) => setDepositorName(e.target.value)}
               placeholder={selectedAffiliate?.full_name ?? "Để trống nếu là chính affiliate"}
             />
+            <p className="text-xs text-muted-foreground mt-1">
+              Hiển thị trong sổ ngân hàng ở cột &quot;Đối tác&quot;
+            </p>
           </div>
 
           <div>
-            <Label className="mb-1.5 block">Nội dung</Label>
+            <Label className="mb-1.5 block">Nội dung giao dịch</Label>
             <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               rows={2}
               className="w-full px-3 py-2 rounded-md border border-input bg-background text-sm resize-none"
-              placeholder="VD: Nộp HH tháng 5/2026"
+              placeholder="VD: Nộp hoa hồng tháng 5/2026"
             />
           </div>
         </CardContent>
