@@ -24,8 +24,6 @@ interface Props {
 export function AffiliateForm({ mode, initialData }: Props) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
-  
-  // Mặc định đóng section "thu nhập khác" để không gây rối
   const [showOtherIncome, setShowOtherIncome] = useState(
     initialData?.has_company_salary ?? false,
   );
@@ -63,13 +61,10 @@ export function AffiliateForm({ mode, initialData }: Props) {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-
     if (!form.full_name.trim() || !form.email.trim()) {
       toast.error("Vui lòng nhập đầy đủ họ tên và email");
       return;
     }
-
-    // Nếu không có lương công ty, reset số liệu về 0
     const submitData: AffiliateFormData = form.has_company_salary
       ? form
       : { ...form, monthly_salary_gross: 0, monthly_salary_tax_withheld: 0 };
@@ -80,18 +75,13 @@ export function AffiliateForm({ mode, initialData }: Props) {
         mode === "create"
           ? await createAffiliate(submitData)
           : await updateAffiliate(initialData!.id, submitData);
-
       if ("error" in result && result.error) {
         toast.error(result.error);
         return;
       }
-
       toast.success(
-        mode === "create"
-          ? "Đã thêm tài khoản mới"
-          : "Đã cập nhật thông tin",
+        mode === "create" ? "Đã thêm tài khoản mới" : "Đã cập nhật thông tin",
       );
-
       if (mode === "create" && result.data) {
         router.push(`/affiliates/${result.data.id}`);
       } else {
@@ -227,7 +217,7 @@ export function AffiliateForm({ mode, initialData }: Props) {
         <CardHeader>
           <CardTitle className="text-base">Thông tin thuế TNCN</CardTitle>
           <p className="text-xs text-muted-foreground">
-            Dùng để tính thuế quyết toán cuối năm
+            Theo Luật Thuế TNCN 2025 (áp dụng từ kỳ 2026)
           </p>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -241,7 +231,7 @@ export function AffiliateForm({ mode, initialData }: Props) {
             />
             <label htmlFor="has_personal_deduction" className="cursor-pointer flex-1">
               <div className="text-sm font-medium">
-                Được giảm trừ bản thân (11 triệu/tháng)
+                Được giảm trừ bản thân (15,5 triệu/tháng)
               </div>
               <p className="text-xs text-muted-foreground mt-0.5">
                 Áp dụng khi quyết toán thuế cuối năm. Mặc định bật.
@@ -261,11 +251,10 @@ export function AffiliateForm({ mode, initialData }: Props) {
               className="w-32"
             />
             <p className="text-xs text-muted-foreground mt-1">
-              Mỗi người phụ thuộc được giảm trừ 4.4 triệu/tháng
+              Mỗi người phụ thuộc được giảm trừ 6,2 triệu/tháng
             </p>
           </FormField>
 
-          {/* Section "Thu nhập khác" - thiết kế kín đáo, collapsible */}
           <div className="border-t border-border pt-4">
             <button
               type="button"
@@ -300,7 +289,6 @@ export function AffiliateForm({ mode, initialData }: Props) {
                       Nhận lương từ công ty (ngoài hoa hồng Shopee)
                     </div>
                     <p className="text-xs text-muted-foreground mt-0.5">
-                      Áp dụng cho người đứng tên đồng thời làm việc tại công ty.
                       Dùng để tính chính xác hơn số thuế TNCN cần nộp thêm cuối năm.
                     </p>
                   </label>
@@ -325,7 +313,7 @@ export function AffiliateForm({ mode, initialData }: Props) {
                         }
                       />
                       <p className="text-xs text-muted-foreground mt-1">
-                        Số thuế công ty đã trừ vào lương mỗi tháng. Để 0 nếu chưa biết.
+                        Để 0 nếu chưa biết
                       </p>
                     </FormField>
                   </div>
@@ -372,20 +360,11 @@ export function AffiliateForm({ mode, initialData }: Props) {
       </Card>
 
       <div className="flex items-center justify-end gap-2 pt-2">
-        <Button
-          type="button"
-          variant="outline"
-          onClick={() => router.back()}
-          disabled={loading}
-        >
+        <Button type="button" variant="outline" onClick={() => router.back()} disabled={loading}>
           Hủy
         </Button>
         <Button type="submit" disabled={loading}>
-          {loading ? (
-            <Loader2 className="w-4 h-4 animate-spin" />
-          ) : (
-            <Save className="w-4 h-4" />
-          )}
+          {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
           {mode === "create" ? "Thêm tài khoản" : "Lưu thay đổi"}
         </Button>
       </div>
