@@ -117,3 +117,82 @@
     background: hsl(var(--muted-foreground));
   }
 }
+/*
+ * Phase 3: Print styles cho sổ tiền mặt và sổ ngân hàng
+ * 
+ * Hướng dẫn cập nhật globals.css:
+ * Thêm đoạn @media print bên dưới vào CUỐI file app/globals.css đã có sẵn.
+ * KHÔNG ghi đè toàn bộ globals.css.
+ */
+
+@media print {
+  /* Bỏ màu nền tối, ép màu trắng để tiết kiệm mực */
+  body {
+    background: white !important;
+    color: black !important;
+  }
+
+  /* Ẩn sidebar, topbar khi in */
+  aside,
+  nav,
+  header,
+  .print\:hidden {
+    display: none !important;
+  }
+
+  /* Layout chính */
+  main {
+    padding: 0 !important;
+    margin: 0 !important;
+    max-width: 100% !important;
+  }
+
+  /* Card không có shadow, border đậm hơn để rõ khi in */
+  [class*="card"] {
+    box-shadow: none !important;
+    border: 1px solid #ccc !important;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  /* Bảng có border rõ */
+  table {
+    border-collapse: collapse;
+    width: 100%;
+  }
+
+  table th,
+  table td {
+    border: 1px solid #ddd !important;
+    padding: 6px 10px !important;
+    font-size: 11px !important;
+  }
+
+  table thead {
+    background: #f5f5f5 !important;
+  }
+
+  /* Print header (chỉ hiện khi in) */
+  .print-header {
+    display: block !important;
+    margin-bottom: 16px;
+    page-break-after: avoid;
+  }
+
+  .print-header h1 {
+    font-size: 18pt;
+    font-weight: bold;
+    margin-bottom: 4px;
+  }
+
+  /* Page setup */
+  @page {
+    size: A4 landscape;
+    margin: 1.5cm;
+  }
+
+  /* Tránh ngắt trang giữa header và content của card */
+  h1, h2, h3, h4, h5, h6 {
+    page-break-after: avoid;
+  }
+}
