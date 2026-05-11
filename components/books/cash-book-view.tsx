@@ -200,17 +200,6 @@ export function CashBookView({
         />
       </div>
 
-      {/* Chart */}
-      {dailyData.length > 0 && (
-        <Card className="print:hidden">
-          <CardHeader>
-            <CardTitle className="text-base">Biến động theo ngày</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <DailyChart data={dailyData} />
-          </CardContent>
-        </Card>
-      )}
 
       {/* Transactions table */}
       <Card>
