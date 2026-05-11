@@ -7,32 +7,15 @@
  * - Nghị quyết 954/2020/UBTVQH14 (mức giảm trừ gia cảnh)
  * 
  * Áp dụng cho phần mềm: Shopee đã khấu trừ 10% tại nguồn (thu nhập vãng lai).
- * Cuối năm cá nhân quyết toán bằng cách:
- *   1. Tổng hợp tổng thu nhập gross cả năm
- *   2. Tính theo biểu lũy tiến 7 bậc (sau khi trừ giảm trừ gia cảnh)
- *   3. So sánh với tổng 10% đã khấu trừ → nộp thêm hoặc được hoàn
  */
 
-// ============================================================================
-// HẰNG SỐ
-// ============================================================================
-
-/** Giảm trừ bản thân: 11 triệu/tháng = 132 triệu/năm */
 export const PERSONAL_DEDUCTION_MONTHLY = 11_000_000;
 export const PERSONAL_DEDUCTION_YEARLY = 132_000_000;
-
-/** Giảm trừ người phụ thuộc: 4.4 triệu/tháng/người = 52.8 triệu/năm/người */
 export const DEPENDENT_DEDUCTION_MONTHLY = 4_400_000;
 export const DEPENDENT_DEDUCTION_YEARLY = 52_800_000;
-
-/** Tỷ lệ khấu trừ thu nhập vãng lai: 10% nếu ≥ 2tr/lần */
 export const VANG_LAI_TAX_RATE = 0.10;
 export const VANG_LAI_THRESHOLD = 2_000_000;
 
-/**
- * Biểu thuế lũy tiến 7 bậc - áp dụng cho thu nhập TÍNH THEO NĂM (chia 12).
- * Bậc thuế trên thu nhập tính thuế tháng (sau khi đã trừ giảm trừ gia cảnh).
- */
 export const TAX_BRACKETS_MONTHLY = [
   { upTo: 5_000_000, rate: 0.05, base: 0 },
   { upTo: 10_000_000, rate: 0.10, base: 250_000 },
@@ -43,25 +26,10 @@ export const TAX_BRACKETS_MONTHLY = [
   { upTo: Infinity, rate: 0.35, base: 18_150_000 },
 ] as const;
 
-/** Biểu thuế quy đổi sang NĂM (nhân 12 tất cả mức) */
-export const TAX_BRACKETS_YEARLY = TAX_BRACKETS_MONTHLY.map((b) => ({
-  upTo: b.upTo === Infinity ? Infinity : b.upTo * 12,
-  rate: b.rate,
-  base: b.base * 12,
-}));
-
-// ============================================================================
-// TYPES
-// ============================================================================
-
 export interface TaxCalculationInput {
-  /** Tổng thu nhập gross cả năm (trước thuế, trước giảm trừ) */
   grossIncome: number;
-  /** Số người phụ thuộc */
   dependents: number;
-  /** Số tháng được tính giảm trừ (mặc định 12) */
   months?: number;
-  /** Tổng số tiền thuế Shopee đã khấu trừ 10% */
   taxAlreadyWithheld?: number;
 }
 
@@ -73,9 +41,7 @@ export interface TaxCalculationResult {
   taxableIncome: number;
   taxPayable: number;
   taxAlreadyWithheld: number;
-  /** Dương = phải nộp thêm, Âm = được hoàn */
   taxDifference: number;
-  /** Chi tiết từng bậc thuế */
   bracketDetails: Array<{
     bracketRange: string;
     rate: number;
@@ -84,21 +50,11 @@ export interface TaxCalculationResult {
   }>;
 }
 
-// ============================================================================
-// HÀM TÍNH CHÍNH
-// ============================================================================
-
-/**
- * Tính thuế TNCN cho thu nhập tính thuế tháng (đã trừ giảm trừ gia cảnh).
- * Dùng biểu lũy tiến 7 bậc theo tháng.
- */
 export function calculateTaxMonthly(taxableIncomeMonthly: number): number {
   if (taxableIncomeMonthly <= 0) return 0;
-
   let tax = 0;
   let remaining = taxableIncomeMonthly;
   let prevUpTo = 0;
-
   for (const bracket of TAX_BRACKETS_MONTHLY) {
     if (remaining <= 0) break;
     const bracketSize = bracket.upTo - prevUpTo;
@@ -107,35 +63,23 @@ export function calculateTaxMonthly(taxableIncomeMonthly: number): number {
     remaining -= taxableInBracket;
     prevUpTo = bracket.upTo;
   }
-
   return Math.round(tax);
 }
 
-/**
- * Tính thuế TNCN cho cả năm - quyết toán cuối năm.
- * Đây là hàm dùng chính trong phần mềm.
- */
 export function calculateAnnualTax(
   input: TaxCalculationInput,
 ): TaxCalculationResult {
   const months = input.months ?? 12;
   const grossIncome = input.grossIncome;
-
-  // Giảm trừ gia cảnh
   const personalDeduction = PERSONAL_DEDUCTION_MONTHLY * months;
   const dependentDeduction =
     DEPENDENT_DEDUCTION_MONTHLY * input.dependents * months;
   const totalDeduction = personalDeduction + dependentDeduction;
-
-  // Thu nhập tính thuế = Gross - Giảm trừ
   const taxableIncome = Math.max(0, grossIncome - totalDeduction);
-
-  // Tính theo lũy tiến tháng (chia trung bình ra tháng)
   const taxableIncomeMonthly = taxableIncome / months;
   const taxPerMonth = calculateTaxMonthly(taxableIncomeMonthly);
   const taxPayable = Math.round(taxPerMonth * months);
 
-  // Chi tiết từng bậc thuế
   const bracketDetails: TaxCalculationResult["bracketDetails"] = [];
   let remaining = taxableIncomeMonthly;
   let prevUpTo = 0;
@@ -144,7 +88,6 @@ export function calculateAnnualTax(
     const bracketSize = bracket.upTo - prevUpTo;
     const incomeInBracketMonthly = Math.min(remaining, bracketSize);
     const taxInBracketMonthly = incomeInBracketMonthly * bracket.rate;
-
     bracketDetails.push({
       bracketRange:
         bracket.upTo === Infinity
@@ -154,7 +97,6 @@ export function calculateAnnualTax(
       incomeInBracket: Math.round(incomeInBracketMonthly * months),
       taxInBracket: Math.round(taxInBracketMonthly * months),
     });
-
     remaining -= incomeInBracketMonthly;
     prevUpTo = bracket.upTo;
   }
@@ -175,27 +117,70 @@ export function calculateAnnualTax(
   };
 }
 
-/**
- * Tính số thuế Shopee phải khấu trừ cho 1 đợt hoa hồng.
- * Theo TT 111: nếu ≥ 2tr/lần → khấu trừ 10%
- */
 export function calculateWithholdingTax(grossAmount: number): number {
   if (grossAmount < VANG_LAI_THRESHOLD) return 0;
   return Math.round(grossAmount * VANG_LAI_TAX_RATE);
 }
 
 /**
- * Format mô tả số thuế phải nộp thêm / được hoàn.
+ * Tính ngược từ NET → GROSS + TAX
+ * 
+ * Logic:
+ * - Nếu net đủ lớn (net ≥ 1.8tr, tức gross ≥ 2tr) → có khấu trừ 10%
+ *   gross = net / 0.9, tax = gross - net = net / 9
+ * - Nếu nhỏ hơn → không khấu trừ, gross = net, tax = 0
  */
+export function calculateGrossFromNet(netAmount: number): {
+  grossAmount: number;
+  taxWithheld: number;
+  hasWithholding: boolean;
+} {
+  if (netAmount <= 0) {
+    return { grossAmount: 0, taxWithheld: 0, hasWithholding: false };
+  }
+
+  // Ngưỡng net = 1.8tr (vì gross 2tr → net 1.8tr sau khấu trừ 10%)
+  const NET_THRESHOLD = VANG_LAI_THRESHOLD * (1 - VANG_LAI_TAX_RATE);
+
+  if (netAmount < NET_THRESHOLD) {
+    return {
+      grossAmount: netAmount,
+      taxWithheld: 0,
+      hasWithholding: false,
+    };
+  }
+
+  const grossAmount = Math.round(netAmount / (1 - VANG_LAI_TAX_RATE));
+  const taxWithheld = grossAmount - netAmount;
+
+  return {
+    grossAmount,
+    taxWithheld,
+    hasWithholding: true,
+  };
+}
+
+/**
+ * Tính từ GROSS → TAX + NET (ngược chiều với hàm trên)
+ */
+export function calculateNetFromGross(grossAmount: number): {
+  netAmount: number;
+  taxWithheld: number;
+  hasWithholding: boolean;
+} {
+  const taxWithheld = calculateWithholdingTax(grossAmount);
+  return {
+    netAmount: grossAmount - taxWithheld,
+    taxWithheld,
+    hasWithholding: taxWithheld > 0,
+  };
+}
+
 export function formatTaxDifference(diff: number): {
   text: string;
   status: "owe" | "refund" | "even";
 } {
-  if (Math.abs(diff) < 1000) {
-    return { text: "Đã đóng đủ", status: "even" };
-  }
-  if (diff > 0) {
-    return { text: `Phải nộp thêm`, status: "owe" };
-  }
-  return { text: `Được hoàn`, status: "refund" };
+  if (Math.abs(diff) < 1000) return { text: "Đã đóng đủ", status: "even" };
+  if (diff > 0) return { text: "Phải nộp thêm", status: "owe" };
+  return { text: "Được hoàn", status: "refund" };
 }
