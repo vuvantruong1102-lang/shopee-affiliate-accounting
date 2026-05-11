@@ -1,36 +1,40 @@
-import type { Metadata } from "next";
-import { Inter, JetBrains_Mono } from "next/font/google";
-import "./globals.css";
-import { Toaster } from "@/components/ui/sonner";
+import { Sidebar } from "@/components/layout/sidebar";
+import { Topbar } from "@/components/layout/topbar";
+import { createClient } from "@/lib/supabase/server";
+import { redirect } from "next/navigation";
 
-const inter = Inter({
-  subsets: ["latin", "vietnamese"],
-  variable: "--font-inter",
-  display: "swap",
-});
-
-const mono = JetBrains_Mono({
-  subsets: ["latin"],
-  variable: "--font-mono",
-  display: "swap",
-});
-
-export const metadata: Metadata = {
-  title: "Kế toán Affiliate Shopee",
-  description: "Phần mềm quản lý kế toán cho hệ thống affiliate Shopee",
-};
-
-export default function RootLayout({
+export default async function DashboardLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    redirect("/login");
+  }
+
+  // Lấy profile để biết role
+  const { data: profile } = await supabase
+    .from("user_profiles")
+    .select("*")
+    .eq("id", user.id)
+    .single();
+
   return (
-    <html lang="vi" suppressHydrationWarning>
-      <body className={`${inter.variable} ${mono.variable} font-sans antialiased`}>
-        {children}
-        <Toaster richColors position="top-right" />
-      </body>
-    </html>
+    <div className="min-h-screen bg-background flex">
+      <Sidebar />
+      <div className="flex-1 flex flex-col min-w-0">
+        <Topbar user={profile ?? { email: user.email, full_name: null, role: "viewer" }} />
+        <main className="flex-1 overflow-auto scrollbar-thin">
+          <div className="container mx-auto px-6 py-6 max-w-[1400px]">
+            {children}
+          </div>
+        </main>
+      </div>
+    </div>
   );
 }
