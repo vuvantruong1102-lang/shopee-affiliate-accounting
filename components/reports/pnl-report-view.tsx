@@ -11,8 +11,10 @@ import { toast } from "sonner";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from "recharts";
 
 interface PnlData {
-  revenue_net: number;
   revenue_gross: number;
+  revenue_net: number;
+  total_commission_tax_withheld: number;
+  tax_payable: number;
   expense_marketing: number;
   expense_salary: number;
   expense_operating: number;
@@ -45,7 +47,7 @@ const EXPENSE_TYPES = [
   { key: "expense_marketing" as const, label: "Marketing & Quảng cáo", color: "hsl(220 70% 50%)" },
   { key: "expense_salary" as const, label: "Lương nhân viên", color: "hsl(280 65% 60%)" },
   { key: "expense_operating" as const, label: "Vận hành", color: "hsl(30 80% 55%)" },
-  { key: "expense_tax" as const, label: "Thuế, phí", color: "hsl(0 75% 60%)" },
+  { key: "expense_tax" as const, label: "Thuế, phí khác (chi trực tiếp)", color: "hsl(340 75% 55%)" },
   { key: "expense_other" as const, label: "Khác", color: "hsl(0 0% 60%)" },
 ];
 
@@ -58,40 +60,52 @@ export function PnlReportView({
   periodLabel,
   previousLabel,
 }: Props) {
-  const revenueChange = formatChange(Number(current.revenue_net), Number(previous.revenue_net));
+  const revenueChange = formatChange(Number(current.revenue_gross), Number(previous.revenue_gross));
+  const taxChange = formatChange(Number(current.tax_payable), Number(previous.tax_payable));
   const expenseChange = formatChange(
     Number(current.total_expense),
     Number(previous.total_expense),
   );
   const profitChange = formatChange(Number(current.profit_loss), Number(previous.profit_loss));
 
-  const pieData = EXPENSE_TYPES.map((e) => ({
-    name: e.label,
-    value: Number(current[e.key]),
-    color: e.color,
-  })).filter((d) => d.value > 0);
+  // Pie data: thêm thuế phải nộp vào cơ cấu chi phí (vì giờ thuế cũng được trừ)
+  const pieData = [
+    { name: "Thuế TNCN phải nộp", value: Number(current.tax_payable), color: "hsl(45 90% 50%)" },
+    ...EXPENSE_TYPES.map((e) => ({
+      name: e.label,
+      value: Number(current[e.key]),
+      color: e.color,
+    })),
+  ].filter((d) => d.value > 0);
+
+  const totalDeduction = Number(current.tax_payable) + Number(current.total_expense);
 
   function handleExport() {
-    const headers = ["Khoản mục", "Số tiền", "% trên DT"];
+    const headers = ["Khoản mục", "Số tiền", "% trên DT Gross"];
     const rows: (string | number)[][] = [];
 
+    const gross = Number(current.revenue_gross);
+    const pctOf = (v: number) => (gross > 0 ? ((v / gross) * 100).toFixed(2) + "%" : "");
+
     rows.push(["=== DOANH THU ==="]);
-    rows.push(["Doanh thu Gross", Number(current.revenue_gross), ""]);
-    rows.push(["Doanh thu Net (sau thuế)", Number(current.revenue_net), ""]);
+    rows.push(["Doanh thu Gross", gross, "100%"]);
+    rows.push(["Doanh thu Net (sau thuế tạm 10%)", Number(current.revenue_net), pctOf(Number(current.revenue_net))]);
+    rows.push([]);
+    rows.push(["=== THUẾ TNCN PHẢI NỘP ==="]);
+    rows.push(["Tổng thuế phải nộp (lũy tiến 5 bậc)", Number(current.tax_payable), pctOf(Number(current.tax_payable))]);
+    rows.push(["  Trong đó: thuế tạm Shopee đã KT", Number(current.total_commission_tax_withheld), pctOf(Number(current.total_commission_tax_withheld))]);
+    rows.push([
+      "  Còn phải nộp thêm",
+      Math.max(0, Number(current.tax_payable) - Number(current.total_commission_tax_withheld)),
+      "",
+    ]);
     rows.push([]);
     rows.push(["=== CHI PHÍ ==="]);
     for (const e of EXPENSE_TYPES) {
       const v = Number(current[e.key]);
-      const pct = Number(current.revenue_net) > 0 ? ((v / Number(current.revenue_net)) * 100).toFixed(2) + "%" : "";
-      rows.push([e.label, v, pct]);
+      rows.push([e.label, v, pctOf(v)]);
     }
-    rows.push([
-      "TỔNG CHI PHÍ",
-      Number(current.total_expense),
-      Number(current.revenue_net) > 0
-        ? ((Number(current.total_expense) / Number(current.revenue_net)) * 100).toFixed(2) + "%"
-        : "",
-    ]);
+    rows.push(["TỔNG CHI PHÍ", Number(current.total_expense), pctOf(Number(current.total_expense))]);
     rows.push([]);
     rows.push(["=== KẾT QUẢ ==="]);
     rows.push([
@@ -100,7 +114,7 @@ export function PnlReportView({
       Number(current.profit_margin).toFixed(2) + "%",
     ]);
     rows.push([]);
-    rows.push(["=== BREAKDOWN CHI TIẾT THEO KHOẢN MỤC ==="]);
+    rows.push(["=== BREAKDOWN CHI PHÍ THEO KHOẢN MỤC ==="]);
     for (const b of breakdown) {
       rows.push([
         b.category_name,
@@ -116,6 +130,18 @@ export function PnlReportView({
   }
 
   const isProfit = Number(current.profit_loss) >= 0;
+  const gross = Number(current.revenue_gross);
+  const pctOf = (v: number) => (gross > 0 ? ((v / gross) * 100).toFixed(1) : "0");
+
+  // Thuế còn phải nộp thêm
+  const taxAdditional = Math.max(
+    0,
+    Number(current.tax_payable) - Number(current.total_commission_tax_withheld),
+  );
+  const taxRefund = Math.max(
+    0,
+    Number(current.total_commission_tax_withheld) - Number(current.tax_payable),
+  );
 
   return (
     <div className="space-y-6">
@@ -128,15 +154,24 @@ export function PnlReportView({
 
       <ReportPeriodSelector from={from} to={to} onExport={handleExport} />
 
-      {/* 3 KPI lớn */}
-      <div className="grid gap-4 md:grid-cols-3">
+      {/* 4 KPI lớn */}
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <BigKpi
-          label="Doanh thu (Net)"
-          value={Number(current.revenue_net)}
+          label="Doanh thu Gross"
+          value={Number(current.revenue_gross)}
           change={revenueChange}
           previousLabel={previousLabel}
-          previousValue={Number(previous.revenue_net)}
+          previousValue={Number(previous.revenue_gross)}
           variant="primary"
+        />
+        <BigKpi
+          label="Tổng thuế phải nộp"
+          value={Number(current.tax_payable)}
+          change={taxChange}
+          previousLabel={previousLabel}
+          previousValue={Number(previous.tax_payable)}
+          variant="warning"
+          invertedColor
         />
         <BigKpi
           label="Tổng chi phí"
@@ -144,8 +179,8 @@ export function PnlReportView({
           change={expenseChange}
           previousLabel={previousLabel}
           previousValue={Number(previous.total_expense)}
-          variant="warning"
-          invertedColor // chi phí tăng = xấu
+          variant="danger"
+          invertedColor
         />
         <BigKpi
           label={isProfit ? "Lãi" : "Lỗ"}
@@ -158,41 +193,103 @@ export function PnlReportView({
         />
       </div>
 
-      {/* Bảng P&L chi tiết */}
+      {/* Bảng P&L + Pie chart */}
       <div className="grid gap-6 lg:grid-cols-3">
         <Card className="lg:col-span-2">
           <CardHeader>
             <CardTitle className="text-base">Bảng Lãi/Lỗ chi tiết</CardTitle>
+            <p className="text-xs text-muted-foreground">
+              Lãi = Doanh thu Gross − Tổng thuế phải nộp − Chi phí
+            </p>
           </CardHeader>
           <CardContent className="p-0">
             <table className="w-full text-sm">
               <tbody>
+                {/* DOANH THU */}
                 <tr className="border-b border-border">
                   <td className="px-6 py-3 font-semibold uppercase text-xs text-muted-foreground">
                     Doanh thu
                   </td>
-                  <td className="px-6 py-3 text-right tabular-nums"></td>
-                  <td className="px-6 py-3 text-right text-xs text-muted-foreground"></td>
+                  <td className="px-6 py-3"></td>
+                  <td className="px-6 py-3"></td>
                 </tr>
-                <tr className="border-b border-border">
-                  <td className="px-6 py-2.5 pl-10 text-muted-foreground">
-                    Doanh thu Gross
-                  </td>
-                  <td className="px-6 py-2.5 text-right tabular-nums">
-                    {formatCurrency(current.revenue_gross)}
-                  </td>
-                  <td className="px-6 py-2.5"></td>
-                </tr>
-                <tr className="border-b border-border font-medium">
-                  <td className="px-6 py-2.5 pl-10">Doanh thu Net (sau thuế khấu trừ)</td>
+                <tr className="border-b border-border font-semibold">
+                  <td className="px-6 py-2.5 pl-10">Doanh thu Gross</td>
                   <td className="px-6 py-2.5 text-right tabular-nums text-primary">
-                    {formatCurrency(current.revenue_net)}
+                    +{formatCurrency(current.revenue_gross)}
                   </td>
                   <td className="px-6 py-2.5 text-right text-xs text-muted-foreground">
                     100%
                   </td>
                 </tr>
+                <tr className="border-b border-border">
+                  <td className="px-6 py-2.5 pl-10 text-muted-foreground text-xs">
+                    Trong đó Net (sau Shopee KT 10%)
+                  </td>
+                  <td className="px-6 py-2.5 text-right tabular-nums text-muted-foreground text-xs">
+                    {formatCurrency(current.revenue_net)}
+                  </td>
+                  <td className="px-6 py-2.5 text-right text-xs text-muted-foreground">
+                    {pctOf(Number(current.revenue_net))}%
+                  </td>
+                </tr>
 
+                {/* THUẾ TNCN */}
+                <tr className="border-b border-border">
+                  <td className="px-6 py-3 font-semibold uppercase text-xs text-muted-foreground">
+                    Thuế TNCN
+                  </td>
+                  <td className="px-6 py-3"></td>
+                  <td className="px-6 py-3"></td>
+                </tr>
+                <tr className="border-b border-border font-semibold">
+                  <td className="px-6 py-2.5 pl-10">Tổng thuế phải nộp</td>
+                  <td className="px-6 py-2.5 text-right tabular-nums text-warning">
+                    −{formatCurrency(current.tax_payable)}
+                  </td>
+                  <td className="px-6 py-2.5 text-right text-xs text-muted-foreground tabular-nums">
+                    {pctOf(Number(current.tax_payable))}%
+                  </td>
+                </tr>
+                <tr className="border-b border-border">
+                  <td className="px-6 py-2 pl-14 text-muted-foreground text-xs">
+                    Thuế tạm nộp (Shopee KT 10%)
+                  </td>
+                  <td className="px-6 py-2 text-right tabular-nums text-muted-foreground text-xs">
+                    {formatCurrency(current.total_commission_tax_withheld)}
+                  </td>
+                  <td className="px-6 py-2 text-right text-xs text-muted-foreground tabular-nums">
+                    {pctOf(Number(current.total_commission_tax_withheld))}%
+                  </td>
+                </tr>
+                {taxAdditional > 0 && (
+                  <tr className="border-b border-border">
+                    <td className="px-6 py-2 pl-14 text-muted-foreground text-xs">
+                      Thuế còn phải nộp thêm (quyết toán)
+                    </td>
+                    <td className="px-6 py-2 text-right tabular-nums text-warning text-xs">
+                      {formatCurrency(taxAdditional)}
+                    </td>
+                    <td className="px-6 py-2 text-right text-xs text-muted-foreground tabular-nums">
+                      {pctOf(taxAdditional)}%
+                    </td>
+                  </tr>
+                )}
+                {taxRefund > 0 && (
+                  <tr className="border-b border-border">
+                    <td className="px-6 py-2 pl-14 text-muted-foreground text-xs">
+                      Được hoàn lại (quyết toán)
+                    </td>
+                    <td className="px-6 py-2 text-right tabular-nums text-success text-xs">
+                      +{formatCurrency(taxRefund)}
+                    </td>
+                    <td className="px-6 py-2 text-right text-xs text-muted-foreground tabular-nums">
+                      {pctOf(taxRefund)}%
+                    </td>
+                  </tr>
+                )}
+
+                {/* CHI PHÍ */}
                 <tr className="border-b border-border">
                   <td className="px-6 py-3 font-semibold uppercase text-xs text-muted-foreground">
                     Chi phí
@@ -201,35 +298,29 @@ export function PnlReportView({
                 </tr>
                 {EXPENSE_TYPES.map((e) => {
                   const v = Number(current[e.key]);
-                  const pct =
-                    Number(current.revenue_net) > 0
-                      ? ((v / Number(current.revenue_net)) * 100).toFixed(1)
-                      : "0";
                   return (
                     <tr key={e.key} className="border-b border-border">
                       <td className="px-6 py-2.5 pl-10 text-muted-foreground">{e.label}</td>
                       <td className="px-6 py-2.5 text-right tabular-nums">
-                        {v > 0 ? `-${formatCurrency(v)}` : "—"}
+                        {v > 0 ? `−${formatCurrency(v)}` : "—"}
                       </td>
                       <td className="px-6 py-2.5 text-right text-xs text-muted-foreground tabular-nums">
-                        {v > 0 ? `${pct}%` : ""}
+                        {v > 0 ? `${pctOf(v)}%` : ""}
                       </td>
                     </tr>
                   );
                 })}
-                <tr className="border-b border-border font-medium">
+                <tr className="border-b border-border font-semibold">
                   <td className="px-6 py-2.5 pl-10">Tổng chi phí</td>
                   <td className="px-6 py-2.5 text-right tabular-nums text-destructive">
-                    -{formatCurrency(current.total_expense)}
+                    −{formatCurrency(current.total_expense)}
                   </td>
                   <td className="px-6 py-2.5 text-right text-xs text-muted-foreground tabular-nums">
-                    {Number(current.revenue_net) > 0
-                      ? ((Number(current.total_expense) / Number(current.revenue_net)) * 100).toFixed(1)
-                      : "0"}
-                    %
+                    {pctOf(Number(current.total_expense))}%
                   </td>
                 </tr>
 
+                {/* LÃI/LỖ */}
                 <tr className="border-t-2 border-border bg-muted/30">
                   <td className="px-6 py-4 font-bold uppercase text-sm">
                     {isProfit ? "Lãi" : "LỖ"}
@@ -255,12 +346,15 @@ export function PnlReportView({
         {/* Pie chart */}
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Cơ cấu chi phí</CardTitle>
+            <CardTitle className="text-base">Cơ cấu trừ ra khỏi DT</CardTitle>
+            <p className="text-xs text-muted-foreground">
+              Thuế + Chi phí (tổng {formatCurrency(totalDeduction)})
+            </p>
           </CardHeader>
           <CardContent>
             {pieData.length === 0 ? (
               <div className="py-12 text-center text-sm text-muted-foreground">
-                Chưa có chi phí
+                Chưa có dữ liệu
               </div>
             ) : (
               <ResponsiveContainer width="100%" height={280}>
@@ -305,7 +399,7 @@ export function PnlReportView({
           <CardHeader>
             <CardTitle className="text-base">Chi phí theo từng khoản mục</CardTitle>
             <p className="text-xs text-muted-foreground">
-              Chi tiết hơn so với 5 nhóm ở trên
+              Chi tiết hơn so với 5 nhóm ở trên (không tính thuế TNCN)
             </p>
           </CardHeader>
           <CardContent className="p-0">
@@ -351,7 +445,7 @@ export function PnlReportView({
         </Card>
       )}
 
-      {/* Cảnh báo nếu lỗ */}
+      {/* Cảnh báo */}
       {!isProfit && Number(current.profit_loss) < 0 && (
         <div className="flex items-start gap-3 p-4 rounded-md bg-destructive/5 border border-destructive/20 print:hidden">
           <AlertCircle className="w-5 h-5 text-destructive flex-shrink-0 mt-0.5" />
@@ -360,8 +454,9 @@ export function PnlReportView({
               Kỳ này lỗ {formatCurrency(Math.abs(Number(current.profit_loss)))}
             </p>
             <p className="text-xs text-muted-foreground mt-1">
-              Chi phí ({formatCurrency(current.total_expense)}) vượt doanh thu net (
-              {formatCurrency(current.revenue_net)}). Xem lại các khoản chi phí lớn.
+              Doanh thu ({formatCurrency(current.revenue_gross)}) không đủ bù thuế (
+              {formatCurrency(current.tax_payable)}) + chi phí (
+              {formatCurrency(current.total_expense)}).
             </p>
           </div>
         </div>
@@ -396,7 +491,6 @@ function BigKpi({
     danger: "text-destructive",
   }[variant];
 
-  // Đối với chi phí, tăng = xấu, giảm = tốt
   let changeClassName = change.className;
   if (invertedColor) {
     changeClassName =
