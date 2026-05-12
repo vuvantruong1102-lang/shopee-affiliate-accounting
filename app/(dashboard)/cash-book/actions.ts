@@ -2,6 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
+import * as bankActions from "@/app/(dashboard)/bank-book/actions";
 
 // ============================================================================
 // CASH - thu/chi tiền mặt thủ công
@@ -100,12 +101,29 @@ export async function deleteCashTransaction(id: string) {
 }
 
 // ============================================================================
-// BANK - re-export từ bank-book/actions.ts
-// (Để tương thích với code cũ import từ cash-book/actions)
+// BANK - wrap từng hàm thành async function trong file này
+// (Tương thích với code cũ import từ cash-book/actions)
+// "use server" không cho re-export trực tiếp → phải khai báo async function
 // ============================================================================
-export {
-  createBankTransaction,
-  updateBankTransaction,
-  deleteBankTransaction,
-  submitBankFromCash,
-} from "@/app/(dashboard)/bank-book/actions";
+
+export async function createBankTransaction(
+  input: Parameters<typeof bankActions.createBankTransaction>[0],
+) {
+  return bankActions.createBankTransaction(input);
+}
+
+export async function updateBankTransaction(
+  input: Parameters<typeof bankActions.updateBankTransaction>[0],
+) {
+  return bankActions.updateBankTransaction(input);
+}
+
+export async function deleteBankTransaction(id: string) {
+  return bankActions.deleteBankTransaction(id);
+}
+
+export async function submitBankFromCash(
+  input: Parameters<typeof bankActions.submitBankFromCash>[0],
+) {
+  return bankActions.submitBankFromCash(input);
+}
