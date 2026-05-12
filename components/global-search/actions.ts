@@ -27,9 +27,8 @@ export async function globalSearch(query: string): Promise<SearchResult[]> {
   if (!user) return [];
 
   const results: SearchResult[] = [];
-  const lowerQ = q.toLowerCase();
 
-  // ============ 1. AFFILIATES (search theo tên/sđt/cccd) ============
+  // ============ 1. AFFILIATES (search theo tên/sđt/cccd/email) ============
   const { data: affiliates } = await supabase
     .from("affiliate_accounts")
     .select("id, full_name, phone, cccd, email, status")
@@ -58,12 +57,15 @@ export async function globalSearch(query: string): Promise<SearchResult[]> {
   if (/^\d/.test(q) || q.toLowerCase().includes("shopee")) {
     const { data: payments } = await supabase
       .from("shopee_payments")
-      .select("id, payment_code, payment_date, total_net, total_gross, is_received, account_id, affiliate_accounts!inner(full_name)")
+      .select(
+        "id, payment_code, payment_date, total_net, total_gross, is_received, account_id, affiliate_accounts!inner(full_name)",
+      )
       .ilike("payment_code", `%${q}%`)
       .or("is_deleted.is.null,is_deleted.eq.false")
       .limit(10);
 
-    for (const p of (payments ?? []) as Array<{
+    // ✨ FIX: affiliate_accounts là array từ join, không phải object
+    type PaymentRow = {
       id: string;
       payment_code: string;
       payment_date: string;
@@ -71,13 +73,21 @@ export async function globalSearch(query: string): Promise<SearchResult[]> {
       total_gross: number;
       is_received: boolean;
       account_id: string;
-      affiliate_accounts: { full_name: string };
-    }>) {
+      affiliate_accounts: { full_name: string }[] | { full_name: string };
+    };
+
+    for (const p of (payments ?? []) as unknown as PaymentRow[]) {
+      // Có thể là array hoặc object tùy Supabase version → handle cả 2
+      const affObj = Array.isArray(p.affiliate_accounts)
+        ? p.affiliate_accounts[0]
+        : p.affiliate_accounts;
+      const affiliateName = affObj?.full_name ?? "—";
+
       results.push({
         type: "shopee_payment",
         id: p.id,
         title: `Đợt thanh toán ${p.payment_code}`,
-        subtitle: `${p.affiliate_accounts.full_name} · ${p.payment_date}`,
+        subtitle: `${affiliateName} · ${p.payment_date}`,
         meta: p.is_received ? "Đã nhận" : "Chờ nhận",
         href: `/reconciliation`,
         amount: Number(p.total_net),
@@ -85,12 +95,12 @@ export async function globalSearch(query: string): Promise<SearchResult[]> {
     }
   }
 
-  // ============ 3. BANK TRANSACTIONS (theo description/notes/amount) ============
-  // Nếu query là số → search theo amount
+  // ============ 3. BANK TRANSACTIONS ============
   const numericQuery = q.replace(/[^\d]/g, "");
   const numericAmount = numericQuery ? parseInt(numericQuery) : null;
 
   if (numericAmount && numericAmount > 1000) {
+    // Search theo amount
     const { data: txns } = await supabase
       .from("bank_transactions")
       .select("id, trans_date, amount, description, trans_type, account_id, bank_account_id")
@@ -98,7 +108,7 @@ export async function globalSearch(query: string): Promise<SearchResult[]> {
       .or("is_deleted.is.null,is_deleted.eq.false")
       .limit(5);
 
-    for (const t of (txns ?? []) as Array<{
+    type TxnRow = {
       id: string;
       trans_date: string;
       amount: number;
@@ -106,7 +116,9 @@ export async function globalSearch(query: string): Promise<SearchResult[]> {
       trans_type: string;
       account_id: string | null;
       bank_account_id: string;
-    }>) {
+    };
+
+    for (const t of (txns ?? []) as unknown as TxnRow[]) {
       results.push({
         type: "bank_transaction",
         id: t.id,
@@ -118,7 +130,7 @@ export async function globalSearch(query: string): Promise<SearchResult[]> {
       });
     }
   } else if (q.length >= 3) {
-    // Search theo description text
+    // Search theo description/notes
     const { data: txns } = await supabase
       .from("bank_transactions")
       .select("id, trans_date, amount, description, trans_type, notes")
@@ -126,14 +138,16 @@ export async function globalSearch(query: string): Promise<SearchResult[]> {
       .or("is_deleted.is.null,is_deleted.eq.false")
       .limit(5);
 
-    for (const t of (txns ?? []) as Array<{
+    type TxnRow = {
       id: string;
       trans_date: string;
       amount: number;
       description: string | null;
       trans_type: string;
       notes: string | null;
-    }>) {
+    };
+
+    for (const t of (txns ?? []) as unknown as TxnRow[]) {
       results.push({
         type: "bank_transaction",
         id: t.id,
@@ -146,5 +160,5 @@ export async function globalSearch(query: string): Promise<SearchResult[]> {
     }
   }
 
-  return results.slice(0, 25); // Cap kết quả
+  return results.slice(0, 25);
 }
