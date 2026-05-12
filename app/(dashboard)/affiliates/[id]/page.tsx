@@ -52,7 +52,7 @@ export default async function AffiliateDetailPage({ params, searchParams }: Page
 
   const aff = affiliate as AffiliateAccount;
 
-  // ============ COMMISSIONS - 2 versions: tất cả + lọc theo period ============
+  // ============ COMMISSIONS ============
   let commissionsQuery = supabase
     .from("commissions")
     .select("*, shopee_payments!commission_id(id)")
@@ -87,7 +87,6 @@ export default async function AffiliateDetailPage({ params, searchParams }: Page
     is_from_shopee: (c.shopee_payments?.length ?? 0) > 0,
   }));
 
-  // KPI - lọc theo period
   const totalGross = commissions.reduce((s, c) => s + c.gross_amount, 0);
   const totalTax = commissions.reduce((s, c) => s + c.tax_withheld, 0);
   const totalReceived = commissions
@@ -97,52 +96,36 @@ export default async function AffiliateDetailPage({ params, searchParams }: Page
     .filter((c) => c.status === "pending")
     .reduce((s, c) => s + c.net_amount, 0);
 
-  // ============ DEPOSITS (bank_transactions) - lọc theo period ============
-  let depositsQuery = supabase
-    .from("bank_transactions")
-    .select("id, trans_date, amount, description, notes, bank_account_id")
+  // ============ DEPOSITS (cash_transactions income) ============
+  let cashDepositsQuery = supabase
+    .from("cash_transactions")
+    .select("id, trans_date, amount, description, notes")
     .eq("account_id", id)
     .eq("trans_type", "income")
-    .eq("is_deleted", false);
+    .or("is_deleted.is.null,is_deleted.eq.false");
 
   if (hasFilter) {
-    depositsQuery = depositsQuery
+    cashDepositsQuery = cashDepositsQuery
       .gte("trans_date", filterFrom)
       .lte("trans_date", filterTo);
   }
 
-  const { data: depositsData } = await depositsQuery
+  const { data: cashDepositsData } = await cashDepositsQuery
     .order("trans_date", { ascending: false })
     .limit(100);
 
-  // Lấy info bank cho mỗi deposit
-  const bankIds = Array.from(
-    new Set((depositsData ?? []).map((d) => d.bank_account_id).filter(Boolean)),
-  );
-  const { data: banksData } = bankIds.length
-    ? await supabase
-        .from("bank_accounts")
-        .select("id, bank_name, account_number")
-        .in("id", bankIds)
-    : { data: [] };
-  const bankMap = new Map(
-    (banksData ?? []).map((b) => [b.id, b]),
-  );
-
-  const deposits = (depositsData ?? []).map((d) => ({
+  const cashDeposits = (cashDepositsData ?? []).map((d) => ({
     id: d.id,
     date: d.trans_date,
     amount: Number(d.amount),
     description: d.description ?? null,
     notes: d.notes ?? null,
-    bank_name: bankMap.get(d.bank_account_id)?.bank_name ?? "—",
-    account_number: bankMap.get(d.bank_account_id)?.account_number ?? "—",
   }));
 
-  const totalDeposited = deposits.reduce((s, d) => s + d.amount, 0);
+  const totalDeposited = cashDeposits.reduce((s, d) => s + d.amount, 0);
   const undeposited = totalReceived - totalDeposited;
 
-  // ============ Activity log gộp ============
+  // ============ Activity log ============
   const activityItems: ActivityItem[] = [
     ...commissions.map((c) => ({
       type: "commission" as const,
@@ -156,25 +139,23 @@ export default async function AffiliateDetailPage({ params, searchParams }: Page
       is_from_shopee: c.is_from_shopee,
       description: c.description,
     })),
-    ...deposits.map((d) => ({
+    ...cashDeposits.map((d) => ({
       type: "deposit" as const,
       id: d.id,
       date: d.date,
       amount: d.amount,
-      bank_name: d.bank_name,
-      account_number: d.account_number,
+      bank_name: "Tiền mặt",
+      account_number: "—",
       description: d.description,
       notes: d.notes,
     })),
   ].sort((a, b) => {
-    // Sắp xếp theo ngày, mới nhất trước
     if (a.date < b.date) return 1;
     if (a.date > b.date) return -1;
-    // Cùng ngày: deposit sau commission
     return a.type === "deposit" ? 1 : -1;
   });
 
-  // ============ YTD TAX - LUÔN tính theo cả năm (không filter) ============
+  // ============ YTD TAX ============
   const now = new Date();
   const currentYear = now.getFullYear();
   const monthsElapsed = now.getMonth() + 1;
@@ -211,33 +192,18 @@ export default async function AffiliateDetailPage({ params, searchParams }: Page
     dependentCount: aff.dependent_count,
   });
 
-  // Bank accounts cho modal nộp tiền
-  const { data: companyBanksData } = await supabase
-    .from("bank_accounts")
-    .select("id, bank_name, account_number, account_holder")
-    .or("is_deleted.is.null,is_deleted.eq.false")
-    .order("bank_name");
-
-  const companyBanks = (companyBanksData ?? []) as Array<{
-    id: string;
-    bank_name: string;
-    account_number: string;
-    account_holder: string;
-  }>;
-
-  // Tổng đã nộp tất cả thời gian (để modal nộp tiền tính undeposited đúng)
-  const { data: allTimeIncome } = await supabase
-    .from("bank_transactions")
+  // ============ All-time totals (cho modal) ============
+  const { data: allTimeCash } = await supabase
+    .from("cash_transactions")
     .select("amount")
     .eq("account_id", id)
     .eq("trans_type", "income")
-    .eq("is_deleted", false);
-  const allTimeTotalDeposited = (allTimeIncome ?? []).reduce(
+    .or("is_deleted.is.null,is_deleted.eq.false");
+  const allTimeTotalDeposited = (allTimeCash ?? []).reduce(
     (s, t) => s + Number(t.amount),
     0,
   );
 
-  // Tổng đã nhận tất cả thời gian (để modal)
   const { data: allTimeCommissions } = await supabase
     .from("commissions")
     .select("net_amount, status")
@@ -270,7 +236,6 @@ export default async function AffiliateDetailPage({ params, searchParams }: Page
     0
   );
 
-  // Label khoảng thời gian cho hiển thị
   const periodLabel = !hasFilter
     ? "Tất cả thời gian"
     : preset === "this_week"
@@ -309,7 +274,6 @@ export default async function AffiliateDetailPage({ params, searchParams }: Page
               received_total: allTimeReceived,
               undeposited: allTimeReceived - allTimeTotalDeposited,
             }}
-            companyBanks={companyBanks}
           />
           <Button variant="outline" size="sm" asChild>
             <Link href={`/tax/${aff.id}`}>
@@ -334,7 +298,6 @@ export default async function AffiliateDetailPage({ params, searchParams }: Page
         </div>
       </div>
 
-      {/* PERIOD FILTER */}
       <Card>
         <CardContent className="p-4">
           <div className="flex items-center justify-between gap-3 flex-wrap">
@@ -375,7 +338,7 @@ export default async function AffiliateDetailPage({ params, searchParams }: Page
           variant="warning"
         />
         <KpiCard
-          label="Đã nộp vào công ty"
+          label="Đã nộp tiền mặt"
           value={formatCurrency(totalDeposited)}
           subtitle={
             undeposited > 0
@@ -416,7 +379,7 @@ export default async function AffiliateDetailPage({ params, searchParams }: Page
         </Card>
 
         <Card>
-          <CardHeader className="flex flex-row items-start justify-between space-y-0">
+          <CardHeader>
             <div>
               <CardTitle className="text-base">Thuế TNCN</CardTitle>
               <p className="text-xs text-muted-foreground mt-0.5">
@@ -491,7 +454,6 @@ export default async function AffiliateDetailPage({ params, searchParams }: Page
         </Card>
       </div>
 
-      {/* Hoa hồng gần đây */}
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Hoa hồng</CardTitle>
@@ -504,7 +466,6 @@ export default async function AffiliateDetailPage({ params, searchParams }: Page
         </CardContent>
       </Card>
 
-      {/* HOẠT ĐỘNG - gộp commission + deposit */}
       <Card>
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
@@ -512,7 +473,7 @@ export default async function AffiliateDetailPage({ params, searchParams }: Page
             Hoạt động gần đây
           </CardTitle>
           <p className="text-xs text-muted-foreground mt-0.5">
-            {activityItems.length} hoạt động · {periodLabel} · gồm hoa hồng + nộp tiền
+            {activityItems.length} hoạt động · {periodLabel} · gồm hoa hồng + nộp tiền mặt
           </p>
         </CardHeader>
         <CardContent className="p-0">

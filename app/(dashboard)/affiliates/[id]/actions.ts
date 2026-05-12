@@ -3,28 +3,22 @@
 import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 
-// ===========================================================================
-// NỘP TIỀN
-// ===========================================================================
-export interface SubmitDepositInput {
+export interface SubmitCashDepositInput {
   affiliate_id: string;
-  company_bank_id: string;
   amount: number;
   trans_date: string;
   notes?: string;
 }
 
-export async function submitAffiliateDeposit(input: SubmitDepositInput) {
+export async function submitAffiliateCashDeposit(input: SubmitCashDepositInput) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Bạn cần đăng nhập" };
 
   if (input.amount <= 0) return { error: "Số tiền phải lớn hơn 0" };
-  if (!input.company_bank_id) return { error: "Chọn tài khoản công ty" };
 
-  const { data, error } = await supabase.rpc("submit_affiliate_deposit", {
+  const { data, error } = await supabase.rpc("submit_affiliate_cash_deposit", {
     p_affiliate_id: input.affiliate_id,
-    p_company_bank_id: input.company_bank_id,
     p_amount: input.amount,
     p_trans_date: input.trans_date,
     p_notes: input.notes ?? null,
@@ -34,14 +28,11 @@ export async function submitAffiliateDeposit(input: SubmitDepositInput) {
 
   revalidatePath(`/affiliates/${input.affiliate_id}`);
   revalidatePath("/affiliates");
-  revalidatePath("/bank-book");
+  revalidatePath("/cash-book");
   revalidatePath("/dashboard");
   return { data };
 }
 
-// ===========================================================================
-// COMMISSION ACTIONS
-// ===========================================================================
 export interface UpdateCommissionInput {
   commission_id: string;
   affiliate_id: string;
