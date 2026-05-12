@@ -6,16 +6,20 @@ import { BankAccountsManager } from "@/components/settings/bank-accounts-manager
 export default async function SettingsPage() {
   const supabase = await createClient();
 
-  // Lấy bank accounts + đếm số giao dịch của từng TK
-  const { data: bankAccountsData } = await supabase
+  // ✨ FIX: filter is_deleted bằng "không phải true" (bao gồm cả null + false)
+  // tránh trường hợp records có is_deleted = null bị skip
+  const { data: bankAccountsData, error } = await supabase
     .from("bank_accounts")
-    .select("id, bank_name, account_number, account_holder, notes, created_at")
-    .eq("is_deleted", false)
+    .select("id, bank_name, account_number, account_holder, notes, created_at, is_deleted")
+    .or("is_deleted.is.null,is_deleted.eq.false")
     .order("bank_name");
+
+  if (error) {
+    console.error("[Settings] Error loading bank accounts:", error);
+  }
 
   const bankAccounts = bankAccountsData ?? [];
 
-  // Đếm transactions cho mỗi TK (parallel)
   const transactionCounts: Record<string, number> = {};
   if (bankAccounts.length > 0) {
     const counts = await Promise.all(
@@ -24,7 +28,7 @@ export default async function SettingsPage() {
           .from("bank_transactions")
           .select("*", { count: "exact", head: true })
           .eq("bank_account_id", b.id)
-          .eq("is_deleted", false);
+          .or("is_deleted.is.null,is_deleted.eq.false");
         return { id: b.id, count: count ?? 0 };
       }),
     );
@@ -39,6 +43,12 @@ export default async function SettingsPage() {
         title="Cài đặt"
         description="Quản lý tài khoản ngân hàng công ty và các thiết lập hệ thống"
       />
+
+      {error && (
+        <div className="p-4 rounded-md bg-destructive/10 border border-destructive/30 text-sm text-destructive">
+          Lỗi tải danh sách: {error.message}
+        </div>
+      )}
 
       <Card>
         <CardHeader>
