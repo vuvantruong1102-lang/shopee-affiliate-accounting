@@ -1,134 +1,87 @@
-# Phase 14 — Fix P&L + Báo cáo Tổng tài sản
+# Phase 15 — Shopee Đang Xử Lý
 
-## 🎯 2 thay đổi
+## 🎯 Thêm KPI thứ 5: "Shopee đang xử lý"
 
-### 1. Fix P&L tính sai (loại trừ chuyển nội bộ)
-
-**Vấn đề**: Trong P&L hiện tại, mục "Khác" −50.000.000đ là tiền **chuyển nội bộ** từ cash sang bank (kế toán nộp tiền mặt vào ngân hàng), không phải chi phí thực.
-
-**Giải pháp**:
-- Thêm cột `is_internal_transfer` vào `bank_transactions` và `cash_transactions`
-- RPC `submit_bank_from_cash` set flag = true cho cả 2 bút toán
-- Backfill flag cho dữ liệu cũ qua pattern description
-- **CẦN SỬA RPC P&L hiện tại** để filter `is_internal_transfer = false`
-
-### 2. Báo cáo Tổng tài sản
-
-Trang `/reports/assets` mới với 4 thành phần:
-- 💰 **Tiền mặt**: SUM(Thu) − SUM(Chi) sổ tiền mặt
-- 🏦 **Tiền ngân hàng**: SUM(Thu) − SUM(Chi) tất cả TK NH
-- 🤝 **Affiliate đang cầm**: Σ (HH đã nhận − Đã nộp) của mỗi affiliate (chỉ tính khi > 0)
-- ⏳ **Shopee chưa chuyển**: SUM(commissions có status = 'pending')
-
-Có chi tiết:
-- Breakdown từng TK ngân hàng
-- Breakdown từng affiliate đang cầm
+Số tiền Shopee đã ghi nhận hoa hồng theo ngày nhưng chưa nhóm thành đợt đối soát.
+Kế toán **nhập thủ công** số liệu từ trang Shopee Affiliate vào bảng trong /reports/assets.
 
 ---
 
-## 📋 Triển khai
+## 📋 Files (4 files)
+
+```
+supabase/migrations/20260514000013_phase15_shopee_processing.sql   ← SQL
+app/(dashboard)/reports/assets/page.tsx                            ← GHI ĐÈ (5 KPI)
+app/(dashboard)/reports/assets/actions.ts                          ← MỚI
+components/reports/shopee-processing-table.tsx                     ← MỚI
+```
+
+---
+
+## 🚀 Triển khai
 
 ### Bước 1: Chạy SQL migration
 
-Vào Supabase SQL Editor → paste file:
-```
-supabase/migrations/20260514000011_phase14_internal_transfer_and_assets.sql
-```
-→ Run
+Supabase SQL Editor → paste file `20260514000013_phase15_shopee_processing.sql` → Run
 
-Migration làm:
-1. Thêm cột `is_internal_transfer` cho 2 bảng
-2. **BACKFILL** đánh dấu dữ liệu cũ (giao dịch 50tr của bạn sẽ được đánh dấu)
-3. Update RPC `submit_bank_from_cash` tự set flag = true
-4. Tạo RPC mới `get_total_assets`
+Migration tạo:
+- Bảng `shopee_processing_amounts` (1 dòng/affiliate)
+- RPC `upsert_shopee_processing` (kế toán dùng để cập nhật)
+- Update RPC `get_total_assets` (cộng thêm `shopee_processing`)
 
-### Bước 2: Upload file page báo cáo
+### Bước 2: Upload 3 files code
 
 ```
-app/(dashboard)/reports/assets/page.tsx        ← MỚI
+app/(dashboard)/reports/assets/page.tsx
+app/(dashboard)/reports/assets/actions.ts
+components/reports/shopee-processing-table.tsx
 ```
 
-### Bước 3: ⚠️ SỬA RPC P&L HIỆN TẠI
+### Bước 3: Commit + Push
 
-Đây là phần quan trọng nhất. P&L hiện tại đang dùng RPC `get_pnl_summary` hoặc tương tự. Bạn cần xem RPC nào tính chi phí từ `bank_transactions`/`cash_transactions` và **thêm filter** `is_internal_transfer = false`.
+Message: `Phase 15: track Shopee processing amount per affiliate`
 
-**Cách tìm**: vào Supabase → Database → Functions → tìm function có chữ `pnl` hoặc `profit` → xem định nghĩa.
-
-**Sửa các dòng**:
-
-```sql
--- Trước:
-SUM(amount) FROM bank_transactions WHERE trans_type = 'expense' AND is_deleted = false
-
--- Sau:
-SUM(amount) FROM bank_transactions 
-WHERE trans_type = 'expense' 
-  AND COALESCE(is_deleted, false) = false
-  AND COALESCE(is_internal_transfer, false) = false  -- ✨ THÊM
-```
-
-Tương tự cho `cash_transactions`.
-
-**Hoặc gửi tôi nội dung RPC P&L hiện tại, tôi sẽ sửa chính xác cho bạn.**
-
-### Bước 4: Thêm link "Tổng tài sản" vào menu Báo cáo
-
-Tìm file render menu báo cáo (có thể là `app/(dashboard)/reports/layout.tsx` hoặc `reports/page.tsx`), thêm entry:
-
-```tsx
-{
-  label: "Tổng tài sản",
-  href: "/reports/assets",
-  description: "Tài sản công ty: tiền mặt + ngân hàng + affiliate đang cầm + Shopee pending",
-}
-```
-
-### Bước 5: Commit + Push
-
-Message: `Phase 14: fix P&L internal transfer + assets report`
-
----
-
-## 🧪 Test scenarios
-
-### Test 1: P&L không còn tính 50tr
-
-1. Vào `/reports/pnl`
-2. Kỳ vọng:
-   - Mục "Khác" hoặc "Tổng chi phí" KHÔNG còn 50tr chuyển nội bộ
-   - **Lãi tăng lên 50tr** (649tr thay vì 599tr)
-   - Pie chart "Cơ cấu trừ ra khỏi DT" cũng update
-
-### Test 2: Báo cáo Tổng tài sản
+### Bước 4: Test
 
 1. Vào `/reports/assets`
-2. Xem 4 KPI lớn
-3. Bấm vào "Affiliate đang cầm" → list từng affiliate
-4. Bấm vào affiliate → đi tới trang chi tiết
-
-### Test 3: Workflow mới không tính nhầm
-
-1. Vào `/bank-book` → "Nộp tiền vào NH" → chọn "Từ TK tiền mặt" → nhập 10tr
-2. Vào `/reports/pnl`
-3. Kỳ vọng: P&L KHÔNG đổi (vì 10tr này là chuyển nội bộ)
+2. KPI top giờ có **5 ô** (thêm "Shopee đang xử lý" màu tím)
+3. Cuộn xuống → thấy bảng "Shopee đang xử lý" với danh sách affiliate
+4. Sửa số tiền cho Vũ Văn Trường: 28.122.446
+5. Đổi ngày snapshot
+6. Bấm "Lưu" → toast xanh
+7. **Pie chart và Tổng tài sản tự cập nhật** sau khi lưu (page tự revalidate)
 
 ---
 
-## 💡 Lưu ý
+## 💡 Workflow hàng ngày của kế toán
 
-### Báo cáo Tổng tài sản là "snapshot" hiện tại
+```
+1. Mở Shopee Affiliate của Trần Văn An
+2. Vào "Thanh toán" → "Hóa đơn đối soát"
+3. Copy số "Khoản thanh toán đang xử lý" (vd: 28.122.446đ)
+4. Vào app /reports/assets
+5. Tìm Trần Văn An trong bảng → paste số → Lưu
+6. Lặp lại cho mỗi affiliate (5 phút)
+7. Pie chart cập nhật ngay, Tổng tài sản đúng 100%
+```
 
-Không có filter theo period vì:
-- Số dư ngân hàng = real-time, không phải "tháng này"
-- Affiliate đang cầm = hiện tại
+---
 
-Nếu cần xem lịch sử theo từng tháng, sau này có thể thêm tính năng "snapshot lịch sử".
+## ✨ Features đặc biệt
 
-### Tài sản công ty thật
+### Cảnh báo "đã cũ"
+Nếu số liệu cập nhật cuối **> 7 ngày trước** và amount > 0:
+- Dòng đó có nền xám
+- Hiển thị "Đã cũ — nên cập nhật"
 
-Báo cáo này chỉ tính **tiền** (cash + bank + receivables). Không tính:
-- Tài sản cố định (máy tính, văn phòng...)
-- Hàng tồn kho
-- Phải thu khác (loans, etc.)
+### Chỉ báo "có thay đổi chưa lưu"
+Khi sửa số, dòng đó có nền cam → nhắc nhở bấm Lưu
 
-Đây là **tài sản lưu động liên quan dòng tiền affiliate Shopee** — đủ cho mục đích quản lý hàng ngày.
+### Snapshot date
+Lưu ngày Shopee tính số liệu (KHÁC với ngày kế toán nhập). Hữu ích để biết "28tr này là tính đến ngày nào".
+
+### Audit log
+Mỗi lần sửa được ghi vào audit_log → trace được lịch sử thay đổi.
+
+### Có thể thu gọn
+Bấm header của bảng → thu gọn/mở rộng để không chiếm chỗ.
