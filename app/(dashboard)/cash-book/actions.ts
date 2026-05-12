@@ -2,6 +2,8 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
+import { logAudit } from "@/lib/audit-log";
+import { formatCurrency } from "@/lib/utils";
 
 export interface CashTransactionUpdate {
   trans_date?: string;
@@ -18,6 +20,13 @@ export async function updateCashTransaction(
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Bạn cần đăng nhập" };
 
+  // Lấy giá trị cũ trước khi update
+  const { data: oldData } = await supabase
+    .from("cash_transactions")
+    .select("trans_date, amount, description")
+    .eq("id", id)
+    .single();
+
   const { error: updateError } = await supabase
     .from("cash_transactions")
     .update(input)
@@ -25,12 +34,34 @@ export async function updateCashTransaction(
 
   if (updateError) return { error: updateError.message };
 
-  // Nếu thay đổi ngày hoặc số tiền → recompute toàn bộ balance
   if (input.trans_date !== undefined || input.amount !== undefined) {
     const { error: recomputeError } = await supabase.rpc("recompute_cash_balances");
     if (recomputeError) {
       console.error("Recompute failed:", recomputeError);
     }
+  }
+
+  // Log audit
+  if (oldData) {
+    const changes: string[] = [];
+    if (input.amount !== undefined && input.amount !== Number(oldData.amount)) {
+      changes.push(`số tiền ${formatCurrency(Number(oldData.amount))} → ${formatCurrency(input.amount)}`);
+    }
+    if (input.trans_date !== undefined && input.trans_date !== oldData.trans_date) {
+      changes.push(`ngày ${oldData.trans_date} → ${input.trans_date}`);
+    }
+    if (input.description !== undefined && input.description !== oldData.description) {
+      changes.push(`diễn giải`);
+    }
+
+    await logAudit({
+      action: "update",
+      table_name: "cash_transactions",
+      record_id: id,
+      description: `Sửa giao dịch tiền mặt: ${changes.join(", ")}`,
+      old_values: oldData,
+      new_values: input as Record<string, unknown>,
+    });
   }
 
   revalidatePath("/cash-book");
@@ -43,23 +74,20 @@ export async function deleteCashTransaction(id: string) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Bạn cần đăng nhập" };
 
-  // Lấy thông tin transaction trước khi xóa (để biết có liên kết bank không)
   const { data: cashTrans } = await supabase
     .from("cash_transactions")
-    .select("id, account_id")
+    .select("*")
     .eq("id", id)
     .single();
 
   if (!cashTrans) return { error: "Không tìm thấy giao dịch" };
 
-  // Tìm bank_transaction liên kết (nếu đây là deposit)
   const { data: linkedBank } = await supabase
     .from("bank_transactions")
     .select("id, bank_account_id")
     .eq("cash_transaction_id", id)
     .single();
 
-  // Soft delete cash
   const { error: cashError } = await supabase
     .from("cash_transactions")
     .update({ is_deleted: true })
@@ -67,21 +95,27 @@ export async function deleteCashTransaction(id: string) {
 
   if (cashError) return { error: cashError.message };
 
-  // Soft delete linked bank (nếu có) — đảm bảo data consistency
   if (linkedBank) {
     await supabase
       .from("bank_transactions")
       .update({ is_deleted: true })
       .eq("id", linkedBank.id);
 
-    // Recompute bank balance
     await supabase.rpc("recompute_bank_balances", {
       p_bank_account_id: linkedBank.bank_account_id,
     });
   }
 
-  // Recompute cash balance
   await supabase.rpc("recompute_cash_balances");
+
+  // Log audit
+  await logAudit({
+    action: "delete",
+    table_name: "cash_transactions",
+    record_id: id,
+    description: `Xóa giao dịch tiền mặt ${formatCurrency(Number(cashTrans.amount))} ngày ${cashTrans.trans_date} (${cashTrans.description})`,
+    old_values: cashTrans as Record<string, unknown>,
+  });
 
   revalidatePath("/cash-book");
   revalidatePath("/bank-book");
@@ -108,13 +142,13 @@ export async function updateBankTransaction(
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Bạn cần đăng nhập" };
 
-  const { data: oldTrans } = await supabase
+  const { data: oldData } = await supabase
     .from("bank_transactions")
-    .select("bank_account_id")
+    .select("*")
     .eq("id", id)
     .single();
 
-  if (!oldTrans) return { error: "Không tìm thấy giao dịch" };
+  if (!oldData) return { error: "Không tìm thấy giao dịch" };
 
   const { error: updateError } = await supabase
     .from("bank_transactions")
@@ -125,9 +159,29 @@ export async function updateBankTransaction(
 
   if (input.trans_date !== undefined || input.amount !== undefined) {
     await supabase.rpc("recompute_bank_balances", {
-      p_bank_account_id: oldTrans.bank_account_id,
+      p_bank_account_id: oldData.bank_account_id,
     });
   }
+
+  const changes: string[] = [];
+  if (input.amount !== undefined && input.amount !== Number(oldData.amount)) {
+    changes.push(`số tiền ${formatCurrency(Number(oldData.amount))} → ${formatCurrency(input.amount)}`);
+  }
+  if (input.trans_date !== undefined && input.trans_date !== oldData.trans_date) {
+    changes.push(`ngày ${oldData.trans_date} → ${input.trans_date}`);
+  }
+  if (input.description !== undefined && input.description !== oldData.description) {
+    changes.push(`diễn giải`);
+  }
+
+  await logAudit({
+    action: "update",
+    table_name: "bank_transactions",
+    record_id: id,
+    description: `Sửa giao dịch ngân hàng: ${changes.join(", ")}`,
+    old_values: oldData as Record<string, unknown>,
+    new_values: input as Record<string, unknown>,
+  });
 
   revalidatePath("/bank-book");
   revalidatePath("/dashboard");
@@ -141,7 +195,7 @@ export async function deleteBankTransaction(id: string) {
 
   const { data: bankTrans } = await supabase
     .from("bank_transactions")
-    .select("id, bank_account_id, cash_transaction_id")
+    .select("*")
     .eq("id", id)
     .single();
 
@@ -154,7 +208,6 @@ export async function deleteBankTransaction(id: string) {
 
   if (bankError) return { error: bankError.message };
 
-  // Nếu có liên kết cash_transaction → xóa luôn
   if (bankTrans.cash_transaction_id) {
     await supabase
       .from("cash_transactions")
@@ -165,6 +218,14 @@ export async function deleteBankTransaction(id: string) {
 
   await supabase.rpc("recompute_bank_balances", {
     p_bank_account_id: bankTrans.bank_account_id,
+  });
+
+  await logAudit({
+    action: "delete",
+    table_name: "bank_transactions",
+    record_id: id,
+    description: `Xóa giao dịch ngân hàng ${formatCurrency(Number(bankTrans.amount))} ngày ${bankTrans.trans_date} (${bankTrans.description})`,
+    old_values: bankTrans as Record<string, unknown>,
   });
 
   revalidatePath("/cash-book");
