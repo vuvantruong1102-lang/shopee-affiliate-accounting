@@ -1,4 +1,3 @@
-import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -109,12 +108,17 @@ export default async function AffiliateDetailPage({ params }: PageProps) {
     0,
   );
 
+  // Lương: tổng thuế đã KT từ lương
+  const monthlySalaryTax = aff.has_company_salary
+    ? Number(aff.monthly_salary_tax_withheld)
+    : 0;
+  const ytdSalaryTaxWithheld = monthlySalaryTax * monthsElapsed;
+  const totalYtdTaxWithheld = ytdTaxWithheld + ytdSalaryTaxWithheld;
+
   const taxResult = calculateYtdAdditionalTax({
     monthsElapsed,
     monthlySalaryGross: aff.has_company_salary ? Number(aff.monthly_salary_gross) : 0,
-    monthlySalaryTaxWithheld: aff.has_company_salary
-      ? Number(aff.monthly_salary_tax_withheld)
-      : 0,
+    monthlySalaryTaxWithheld: monthlySalaryTax,
     ytdShopeeGross: ytdGross,
     ytdShopeeTaxWithheld: ytdTaxWithheld,
     hasPersonalDeduction: aff.has_personal_deduction,
@@ -141,12 +145,22 @@ export default async function AffiliateDetailPage({ params }: PageProps) {
     aff.status === "active" ? "Đang hoạt động" :
     aff.status === "paused" ? "Tạm dừng" : "Đã đóng";
 
-  // Lấy MST từ field bất kỳ nếu có (fallback an toàn)
+  // MST: fallback các tên field có thể
   const mstValue: string | null | undefined =
     (aff as unknown as Record<string, string | null | undefined>).personal_tax_code ??
     (aff as unknown as Record<string, string | null | undefined>).mst ??
     (aff as unknown as Record<string, string | null | undefined>).tax_code ??
     null;
+
+  // Số thuế cần nộp thêm: fallback nếu field có tên khác
+  const taxResultAny = taxResult as unknown as Record<string, number>;
+  const additionalTax = Number(
+    taxResultAny.additionalTaxNeeded ??
+    taxResultAny.additional_tax_needed ??
+    taxResultAny.taxAdditional ??
+    taxResultAny.additional ??
+    0
+  );
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -283,18 +297,25 @@ export default async function AffiliateDetailPage({ params }: PageProps) {
             {aff.has_company_salary && (
               <InfoRow
                 label="Lương công ty"
-                value={`${formatCurrency(aff.monthly_salary_gross)}/tháng`}
+                value={`${formatCurrency(Number(aff.monthly_salary_gross))}/tháng`}
                 compact
               />
             )}
             <InfoRow
               label="Shopee đã khấu trừ"
-              value={formatCurrency(taxResult.ytdShopeeTaxWithheld)}
+              value={formatCurrency(ytdTaxWithheld)}
               compact
             />
+            {aff.has_company_salary && (
+              <InfoRow
+                label="Lương đã KT"
+                value={formatCurrency(ytdSalaryTaxWithheld)}
+                compact
+              />
+            )}
             <InfoRow
               label="Tổng đã KT"
-              value={formatCurrency(taxResult.ytdTaxWithheldTotal)}
+              value={formatCurrency(totalYtdTaxWithheld)}
               compact
             />
 
@@ -310,17 +331,15 @@ export default async function AffiliateDetailPage({ params }: PageProps) {
                   <p
                     className={cn(
                       "text-lg font-bold tabular-nums",
-                      taxResult.additionalTaxNeeded > 0 ? "text-warning" : "text-success",
+                      additionalTax > 0 ? "text-warning" : "text-success",
                     )}
                   >
-                    {taxResult.additionalTaxNeeded > 0
-                      ? formatCurrency(taxResult.additionalTaxNeeded)
-                      : formatCurrency(Math.abs(taxResult.additionalTaxNeeded))}
+                    {formatCurrency(Math.abs(additionalTax))}
                   </p>
                   <p className="text-[10px] text-muted-foreground">
-                    {taxResult.additionalTaxNeeded > 0
+                    {additionalTax > 0
                       ? "Phải nộp thêm"
-                      : taxResult.additionalTaxNeeded < 0
+                      : additionalTax < 0
                         ? "Được hoàn"
                         : "Đã đủ"}
                   </p>
