@@ -8,12 +8,11 @@ import { CurrencyInput } from "@/components/shared/currency-input";
 import {
   TrendingUp,
   Receipt,
-  Wallet,
-  Users,
   Megaphone,
   Coins,
   Info,
   RotateCcw,
+  Sparkles,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { formatCurrency } from "@/lib/utils";
@@ -27,84 +26,64 @@ import {
 } from "@/lib/tax-calculator";
 
 const DEFAULT_VALUES = {
-  monthsCount: 1,
-  hhGrossMonthly: 30_000_000,
-  salaryGrossMonthly: 0,
+  hhGross: 30_000_000,
+  salaryGross: 0,
+  adsExpense: 5_000_000,
   hasPersonalDeduction: true,
   dependentCount: 0,
-  adsExpenseMonthly: 5_000_000,
-  otherExpenseMonthly: 0,
 };
 
 export function CalculatorForm() {
-  const [monthsCount, setMonthsCount] = useState(DEFAULT_VALUES.monthsCount);
-  const [hhGrossMonthly, setHhGrossMonthly] = useState(DEFAULT_VALUES.hhGrossMonthly);
-  const [salaryGrossMonthly, setSalaryGrossMonthly] = useState(DEFAULT_VALUES.salaryGrossMonthly);
+  const [hhGross, setHhGross] = useState(DEFAULT_VALUES.hhGross);
+  const [salaryGross, setSalaryGross] = useState(DEFAULT_VALUES.salaryGross);
+  const [adsExpense, setAdsExpense] = useState(DEFAULT_VALUES.adsExpense);
   const [hasPersonalDeduction, setHasPersonalDeduction] = useState(DEFAULT_VALUES.hasPersonalDeduction);
   const [dependentCount, setDependentCount] = useState(DEFAULT_VALUES.dependentCount);
-  const [adsExpenseMonthly, setAdsExpenseMonthly] = useState(DEFAULT_VALUES.adsExpenseMonthly);
-  const [otherExpenseMonthly, setOtherExpenseMonthly] = useState(DEFAULT_VALUES.otherExpenseMonthly);
 
   function handleReset() {
-    setMonthsCount(DEFAULT_VALUES.monthsCount);
-    setHhGrossMonthly(DEFAULT_VALUES.hhGrossMonthly);
-    setSalaryGrossMonthly(DEFAULT_VALUES.salaryGrossMonthly);
+    setHhGross(DEFAULT_VALUES.hhGross);
+    setSalaryGross(DEFAULT_VALUES.salaryGross);
+    setAdsExpense(DEFAULT_VALUES.adsExpense);
     setHasPersonalDeduction(DEFAULT_VALUES.hasPersonalDeduction);
     setDependentCount(DEFAULT_VALUES.dependentCount);
-    setAdsExpenseMonthly(DEFAULT_VALUES.adsExpenseMonthly);
-    setOtherExpenseMonthly(DEFAULT_VALUES.otherExpenseMonthly);
   }
 
   const calc = useMemo(() => {
-    const months = monthsCount;
-
     // 1. Doanh thu
-    const hhGross = hhGrossMonthly * months;
-    const salaryGross = salaryGrossMonthly * months;
     const totalIncome = hhGross + salaryGross;
 
-    // 2. Thuế tạm nộp 10% (vãng lai trên hoa hồng)
+    // 2. Thuế tạm nộp 10% trên HH gross
     const taxWithholding = Math.round(hhGross * VANG_LAI_TAX_RATE);
-    const hhNet = hhGross - taxWithholding;
 
-    // 3. Giảm trừ
-    const personalDeduction = hasPersonalDeduction ? PERSONAL_DEDUCTION_MONTHLY * months : 0;
-    const dependentDeduction = DEPENDENT_DEDUCTION_MONTHLY * dependentCount * months;
+    // 3. Giảm trừ (theo tháng, vì người dùng nhập số/tháng)
+    const personalDeduction = hasPersonalDeduction ? PERSONAL_DEDUCTION_MONTHLY : 0;
+    const dependentDeduction = DEPENDENT_DEDUCTION_MONTHLY * dependentCount;
     const totalDeduction = personalDeduction + dependentDeduction;
 
-    // 4. Thu nhập tính thuế (TNTT)
+    // 4. TNTT
     const taxableIncome = Math.max(0, totalIncome - totalDeduction);
-    const taxableMonthly = taxableIncome / months;
 
-    // 5. Thuế phải nộp theo lũy tiến (tính cho 1 tháng × số tháng)
-    const taxPerMonth = calculateTaxMonthly(taxableMonthly);
-    const taxPayable = Math.round(taxPerMonth * months);
+    // 5. Thuế phải nộp theo lũy tiến
+    const taxPayable = calculateTaxMonthly(taxableIncome);
 
-    // 6. Thuế còn phải nộp thêm (sau quyết toán)
+    // 6. Chênh
     const taxAdditional = Math.max(0, taxPayable - taxWithholding);
     const taxRefund = Math.max(0, taxWithholding - taxPayable);
 
-    // 7. Tổng số thuế thực sự phải nộp = max(taxPayable, taxWithholding)
-    // Vì 10% đã nộp rồi nên nếu được hoàn thì giảm tổng đi
-    const totalTaxFinal = taxPayable; // Số cuối cùng sau quyết toán
+    // 7. Lợi nhuận
+    // HH Net = HH Gross - 10% tạm KT
+    const hhNet = hhGross - taxWithholding;
+    // Lợi nhuận = HH Net + Lương - Ads - Thuế còn phải nộp thêm
+    const profit = hhNet + salaryGross - adsExpense - taxAdditional;
 
-    // 8. Chi phí và lợi nhuận
-    const adsExpense = adsExpenseMonthly * months;
-    const otherExpense = otherExpenseMonthly * months;
-    const totalExpense = adsExpense + otherExpense;
-
-    // Lợi nhuận = Doanh thu net - chi phí - thuế còn phải nộp thêm
-    // (hhNet đã trừ 10%, cần trừ thêm phần thuế nộp thêm)
-    const profit = hhNet + salaryGross - totalExpense - taxAdditional;
-
-    // 9. Bracket details (cho bảng bên phải)
+    // 8. Bracket details
     const brackets: Array<{
       label: string;
       rate: number;
       incomeInBracket: number;
       taxInBracket: number;
     }> = [];
-    let remaining = taxableMonthly;
+    let remaining = taxableIncome;
     let prevUpTo = 0;
     for (const b of TAX_BRACKETS_MONTHLY) {
       if (remaining <= 0) break;
@@ -119,15 +98,14 @@ export function CalculatorForm() {
               ? `Đến ${(b.upTo / 1_000_000).toFixed(0)}tr`
               : `${(prevUpTo / 1_000_000).toFixed(0)} - ${(b.upTo / 1_000_000).toFixed(0)}tr`,
         rate: b.rate,
-        incomeInBracket: Math.round(incomeInBracket * months),
-        taxInBracket: Math.round(taxInBracket * months),
+        incomeInBracket: Math.round(incomeInBracket),
+        taxInBracket: Math.round(taxInBracket),
       });
       remaining -= incomeInBracket;
       prevUpTo = b.upTo;
     }
 
     return {
-      months,
       hhGross,
       hhNet,
       salaryGross,
@@ -136,98 +114,54 @@ export function CalculatorForm() {
       taxAdditional,
       taxRefund,
       taxPayable,
-      totalTaxFinal,
       personalDeduction,
       dependentDeduction,
       totalDeduction,
       taxableIncome,
-      taxableMonthly,
       adsExpense,
-      otherExpense,
-      totalExpense,
       profit,
       brackets,
     };
-  }, [
-    monthsCount,
-    hhGrossMonthly,
-    salaryGrossMonthly,
-    hasPersonalDeduction,
-    dependentCount,
-    adsExpenseMonthly,
-    otherExpenseMonthly,
-  ]);
-
-  // Tỷ lệ % trên hoa hồng gross (mẫu số chính)
-  function pct(value: number): string {
-    if (calc.hhGross === 0) return "—";
-    return `${((value / calc.hhGross) * 100).toFixed(1)}%`;
-  }
+  }, [hhGross, salaryGross, adsExpense, hasPersonalDeduction, dependentCount]);
 
   return (
     <div className="grid gap-6 lg:grid-cols-5">
-      {/* CỘT TRÁI: Form input + Kết quả tổng quan (3/5) */}
+      {/* CỘT TRÁI: Form input + Kết quả (3/5) */}
       <div className="lg:col-span-3 space-y-6">
         {/* Form input */}
         <Card>
           <CardHeader>
             <div className="flex items-center justify-between">
-              <CardTitle className="text-base">Nhập thông số ước tính</CardTitle>
+              <CardTitle className="text-base">Nhập thông số</CardTitle>
               <Button variant="ghost" size="sm" onClick={handleReset}>
                 <RotateCcw className="w-3.5 h-3.5" />
                 Đặt lại
               </Button>
             </div>
             <p className="text-xs text-muted-foreground mt-1">
-              Nhập số liệu trung bình hàng tháng. Hệ thống sẽ nhân với số tháng để ước tính.
+              Nhập số liệu tùy ý để ước tính nhanh thuế và lợi nhuận
             </p>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div>
-              <Label className="mb-1.5 block">Phạm vi tính toán</Label>
-              <select
-                value={monthsCount}
-                onChange={(e) => setMonthsCount(parseInt(e.target.value))}
-                className="h-9 w-full px-3 rounded-md border border-input bg-background text-sm"
-              >
-                <option value={1}>1 tháng</option>
-                <option value={3}>3 tháng (1 quý)</option>
-                <option value={6}>6 tháng (nửa năm)</option>
-                <option value={12}>12 tháng (cả năm)</option>
-              </select>
-            </div>
-
             <div className="grid gap-4 md:grid-cols-2">
               <div>
                 <Label className="mb-1.5 block">
-                  Hoa hồng Gross / tháng
+                  Hoa hồng Gross
                 </Label>
-                <CurrencyInput value={hhGrossMonthly} onChange={setHhGrossMonthly} />
-                <p className="text-xs text-muted-foreground mt-1">
-                  Trung bình Shopee chuyển mỗi tháng
-                </p>
+                <CurrencyInput value={hhGross} onChange={setHhGross} />
               </div>
               <div>
-                <Label className="mb-1.5 block">Lương công ty / tháng</Label>
-                <CurrencyInput value={salaryGrossMonthly} onChange={setSalaryGrossMonthly} />
+                <Label className="mb-1.5 block">Lương</Label>
+                <CurrencyInput value={salaryGross} onChange={setSalaryGross} />
                 <p className="text-xs text-muted-foreground mt-1">
-                  Để 0 nếu không có lương khác
+                  Để 0 nếu không có
                 </p>
               </div>
             </div>
 
-            <div className="grid gap-4 md:grid-cols-2">
-              <div>
-                <Label className="mb-1.5 block">Chi phí Facebook Ads / tháng</Label>
-                <CurrencyInput value={adsExpenseMonthly} onChange={setAdsExpenseMonthly} />
-              </div>
-              <div>
-                <Label className="mb-1.5 block">Chi phí khác / tháng</Label>
-                <CurrencyInput value={otherExpenseMonthly} onChange={setOtherExpenseMonthly} />
-                <p className="text-xs text-muted-foreground mt-1">
-                  Vận hành, lương NV, văn phòng phẩm...
-                </p>
-              </div>
+            <div>
+              <Label className="mb-1.5 block">Chi phí Facebook Ads</Label>
+              <CurrencyInput value={adsExpense} onChange={setAdsExpense} />
             </div>
 
             <div className="flex items-start gap-3 p-3 rounded-md bg-muted/40">
@@ -239,7 +173,7 @@ export function CalculatorForm() {
                 className="mt-0.5 w-4 h-4"
               />
               <label htmlFor="has_personal" className="cursor-pointer flex-1 text-sm">
-                Có giảm trừ bản thân ({formatCurrency(PERSONAL_DEDUCTION_MONTHLY)}/tháng)
+                Có giảm trừ bản thân ({formatCurrency(PERSONAL_DEDUCTION_MONTHLY)})
               </label>
             </div>
 
@@ -254,139 +188,89 @@ export function CalculatorForm() {
                 className="w-32"
               />
               <p className="text-xs text-muted-foreground mt-1">
-                Mỗi người được giảm trừ {formatCurrency(DEPENDENT_DEDUCTION_MONTHLY)}/tháng
+                Mỗi người được giảm trừ {formatCurrency(DEPENDENT_DEDUCTION_MONTHLY)}
               </p>
             </div>
           </CardContent>
         </Card>
 
-        {/* Kết quả tổng quan */}
+        {/* ====================== KẾT QUẢ ====================== */}
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">
-              Kết quả ước tính cho {monthsCount} tháng
+            <CardTitle className="text-base flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-primary" />
+              Kết quả ước tính
             </CardTitle>
           </CardHeader>
-          <CardContent className="p-0">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-border text-xs text-muted-foreground">
-                  <th className="text-left font-medium px-6 py-2.5">Hạng mục</th>
-                  <th className="text-right font-medium px-6 py-2.5">Số tiền</th>
-                  <th className="text-right font-medium px-6 py-2.5 w-20">% / HH</th>
-                </tr>
-              </thead>
-              <tbody>
-                <SectionHeader label="DOANH THU" />
-                <Row
-                  icon={TrendingUp}
-                  label="Hoa hồng Gross"
-                  value={calc.hhGross}
-                  pct="100%"
-                  bold
-                />
-                <Row
-                  label="Thuế tạm nộp 10% (vãng lai)"
-                  value={-calc.taxWithholding}
-                  pct={pct(calc.taxWithholding)}
-                  indent
-                  muted
-                />
-                <Row
-                  icon={Wallet}
-                  label="Hoa hồng Net (thực nhận)"
-                  value={calc.hhNet}
-                  pct={pct(calc.hhNet)}
-                  bold
-                  variant="success"
-                />
-                {calc.salaryGross > 0 && (
-                  <Row
-                    label="Lương công ty"
-                    value={calc.salaryGross}
-                    pct={pct(calc.salaryGross)}
-                  />
-                )}
+          <CardContent className="space-y-4">
+            {/* 1. Hoa hồng Gross - card lớn */}
+            <MainRow
+              icon={TrendingUp}
+              label="Hoa hồng Gross"
+              value={calc.hhGross}
+              variant="primary"
+            />
 
-                <SectionHeader label="GIẢM TRỪ" />
-                {hasPersonalDeduction && (
-                  <Row
-                    label={`Giảm trừ bản thân (${monthsCount} tháng)`}
-                    value={calc.personalDeduction}
-                    pct={pct(calc.personalDeduction)}
-                    muted
-                  />
-                )}
-                {dependentCount > 0 && (
-                  <Row
-                    icon={Users}
-                    label={`Giảm trừ ${dependentCount} người phụ thuộc`}
-                    value={calc.dependentDeduction}
-                    pct={pct(calc.dependentDeduction)}
-                    muted
-                  />
-                )}
-                <Row
-                  label="Tổng giảm trừ"
-                  value={calc.totalDeduction}
-                  pct={pct(calc.totalDeduction)}
-                  bold
+            {/* 2. Giảm trừ - card với 2 sub items */}
+            <SectionCard label="Giảm trừ" totalValue={calc.totalDeduction}>
+              {hasPersonalDeduction && (
+                <SubRow
+                  label="Giảm trừ bản thân"
+                  value={calc.personalDeduction}
                 />
+              )}
+              {dependentCount > 0 && (
+                <SubRow
+                  label={`Giảm trừ ${dependentCount} người phụ thuộc`}
+                  value={calc.dependentDeduction}
+                />
+              )}
+              {!hasPersonalDeduction && dependentCount === 0 && (
+                <div className="text-xs text-muted-foreground italic px-1 py-1">
+                  Chưa chọn giảm trừ
+                </div>
+              )}
+            </SectionCard>
 
-                <SectionHeader label="THUẾ TNCN" />
-                <Row
-                  icon={Receipt}
-                  label="Thuế tạm nộp (đã KT 10%)"
-                  value={calc.taxWithholding}
-                  pct={pct(calc.taxWithholding)}
+            {/* 3. Thuế phải nộp - card lớn với 2 sub */}
+            <SectionCardMain
+              icon={Receipt}
+              label="Thuế phải nộp"
+              totalValue={calc.taxPayable}
+              variant="warning"
+            >
+              <SubRow
+                label="Thuế tạm nộp (Shopee khấu trừ 10%)"
+                value={calc.taxWithholding}
+              />
+              <SubRow
+                label={calc.taxAdditional > 0 ? "Thuế còn phải nộp thêm" : "Đã đóng đủ"}
+                value={calc.taxAdditional}
+                emphasized={calc.taxAdditional > 0}
+                variantText={calc.taxAdditional > 0 ? "warning" : undefined}
+              />
+              {calc.taxRefund > 0 && (
+                <SubRow
+                  label="Được hoàn lại"
+                  value={calc.taxRefund}
+                  emphasized
+                  variantText="success"
+                  prefix="+"
                 />
-                {calc.taxAdditional > 0 && (
-                  <Row
-                    label="Thuế còn phải nộp thêm (quyết toán)"
-                    value={calc.taxAdditional}
-                    pct={pct(calc.taxAdditional)}
-                    variant="warning"
-                  />
-                )}
-                {calc.taxRefund > 0 && (
-                  <Row
-                    label="Được hoàn thuế (quyết toán)"
-                    value={-calc.taxRefund}
-                    pct={pct(calc.taxRefund)}
-                    variant="success"
-                  />
-                )}
-                <Row
-                  label="Tổng thuế phải nộp"
-                  value={calc.taxPayable}
-                  pct={pct(calc.taxPayable)}
-                  bold
-                />
+              )}
+            </SectionCardMain>
 
-                <SectionHeader label="CHI PHÍ" />
-                {calc.adsExpense > 0 && (
-                  <Row
-                    icon={Megaphone}
-                    label="Chi phí Facebook Ads"
-                    value={calc.adsExpense}
-                    pct={pct(calc.adsExpense)}
-                    muted
-                  />
-                )}
-                {calc.otherExpense > 0 && (
-                  <Row label="Chi phí khác" value={calc.otherExpense} pct={pct(calc.otherExpense)} muted />
-                )}
-                <Row
-                  label="Tổng chi phí"
-                  value={calc.totalExpense}
-                  pct={pct(calc.totalExpense)}
-                  bold
-                />
+            {/* 4. Chi phí Ads - card lớn */}
+            <MainRow
+              icon={Megaphone}
+              label="Chi phí Facebook Ads"
+              value={calc.adsExpense}
+              variant="danger"
+              isExpense
+            />
 
-                <SectionHeader label="LỢI NHUẬN" />
-                <ProfitRow profit={calc.profit} pctText={pct(calc.profit)} />
-              </tbody>
-            </table>
+            {/* 5. Lợi nhuận - card NỔI BẬT NHẤT */}
+            <ProfitCard profit={calc.profit} />
           </CardContent>
         </Card>
 
@@ -394,19 +278,11 @@ export function CalculatorForm() {
         <div className="flex items-start gap-3 p-4 rounded-md bg-muted/40 text-xs text-muted-foreground">
           <Info className="w-4 h-4 flex-shrink-0 mt-0.5" />
           <div className="space-y-1">
-            <p className="font-medium text-foreground">Lưu ý về cách tính</p>
-            <p>
-              • <strong>Hoa hồng Net</strong> = Gross − 10% thuế tạm nộp (theo TT 111/2013)
-            </p>
-            <p>
-              • <strong>Thuế phải nộp</strong> tính theo lũy tiến 5 bậc (Luật 109/2025) trên thu nhập tính thuế
-            </p>
-            <p>
-              • <strong>Lợi nhuận</strong> = Hoa hồng Net + Lương − Chi phí − Thuế nộp thêm (nếu có)
-            </p>
-            <p>
-              • Đây là ước tính sơ bộ. Số liệu thực có thể khác do BHXH, phụ cấp, các khoản miễn thuế khác...
-            </p>
+            <p className="font-medium text-foreground">Cách tính</p>
+            <p>• <strong>Thuế tạm nộp</strong> = Hoa hồng Gross × 10% (Shopee khấu trừ tại nguồn)</p>
+            <p>• <strong>Thuế phải nộp</strong> = (HH Gross + Lương − Giảm trừ) áp biểu lũy tiến 5 bậc</p>
+            <p>• <strong>Lợi nhuận</strong> = HH Net + Lương − Chi phí Ads − Thuế còn phải nộp thêm</p>
+            <p>• Đây là ước tính sơ bộ theo Luật Thuế TNCN 2025 (số 109/2025/QH15).</p>
           </div>
         </div>
       </div>
@@ -425,16 +301,10 @@ export function CalculatorForm() {
           </CardHeader>
           <CardContent className="space-y-3 p-0">
             <div className="px-6 pb-3 border-b border-border">
-              <div className="flex items-center justify-between text-xs mb-1">
+              <div className="flex items-center justify-between text-xs">
                 <span className="text-muted-foreground">Thu nhập tính thuế:</span>
                 <span className="font-medium tabular-nums">
                   {formatCurrency(calc.taxableIncome)}
-                </span>
-              </div>
-              <div className="flex items-center justify-between text-xs">
-                <span className="text-muted-foreground">TB/tháng:</span>
-                <span className="font-medium tabular-nums">
-                  {formatCurrency(calc.taxableMonthly)}
                 </span>
               </div>
             </div>
@@ -450,10 +320,7 @@ export function CalculatorForm() {
                   const pctOfTotal =
                     totalTax > 0 ? ((b.taxInBracket / totalTax) * 100).toFixed(0) : "0";
                   return (
-                    <div
-                      key={i}
-                      className="py-2.5 border-b border-border last:border-0"
-                    >
+                    <div key={i} className="py-2.5 border-b border-border last:border-0">
                       <div className="flex items-center justify-between mb-1">
                         <div className="flex items-center gap-2">
                           <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
@@ -473,7 +340,6 @@ export function CalculatorForm() {
                           {formatCurrency(b.taxInBracket)}
                         </span>
                       </div>
-                      {/* Progress bar */}
                       <div className="h-1 bg-muted rounded-full overflow-hidden mt-1.5">
                         <div
                           className="h-full bg-primary transition-all"
@@ -528,90 +394,238 @@ export function CalculatorForm() {
 }
 
 // ============================================================================
-// HELPER COMPONENTS
+// MAIN ROW - 1 hàng lớn không có sub-items (HH Gross, Chi phí Ads)
 // ============================================================================
-function SectionHeader({ label }: { label: string }) {
-  return (
-    <tr className="border-b border-border bg-muted/30">
-      <td colSpan={3} className="px-6 py-2 text-[10px] uppercase tracking-wider font-semibold text-muted-foreground">
-        {label}
-      </td>
-    </tr>
-  );
-}
-
-function Row({
+function MainRow({
   icon: Icon,
   label,
   value,
-  pct,
-  bold,
-  indent,
-  muted,
   variant,
+  isExpense,
 }: {
-  icon?: React.ComponentType<{ className?: string }>;
+  icon: React.ComponentType<{ className?: string }>;
   label: string;
   value: number;
-  pct: string;
-  bold?: boolean;
-  indent?: boolean;
-  muted?: boolean;
-  variant?: "success" | "warning" | "danger";
+  variant: "primary" | "warning" | "success" | "danger";
+  isExpense?: boolean;
 }) {
-  const variantColor = {
-    success: "text-success",
-    warning: "text-warning",
-    danger: "text-destructive",
-  };
-  const valueClass = variant ? variantColor[variant] : "";
-  const labelClass = muted ? "text-muted-foreground" : "";
-  const sign = value < 0 ? "" : "";
+  const styles = {
+    primary: {
+      iconBg: "bg-primary/10",
+      iconColor: "text-primary",
+      valueColor: "text-primary",
+      borderColor: "border-primary/20",
+    },
+    warning: {
+      iconBg: "bg-warning/10",
+      iconColor: "text-warning",
+      valueColor: "text-warning",
+      borderColor: "border-warning/20",
+    },
+    success: {
+      iconBg: "bg-success/10",
+      iconColor: "text-success",
+      valueColor: "text-success",
+      borderColor: "border-success/20",
+    },
+    danger: {
+      iconBg: "bg-destructive/10",
+      iconColor: "text-destructive",
+      valueColor: "text-destructive",
+      borderColor: "border-destructive/20",
+    },
+  }[variant];
 
   return (
-    <tr className="border-b border-border last:border-0 hover:bg-muted/40">
-      <td className={cn("px-6 py-2.5", indent && "pl-12", bold && "font-semibold", labelClass)}>
-        <div className="flex items-center gap-2">
-          {Icon && <Icon className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />}
-          <span>{label}</span>
+    <div
+      className={cn(
+        "flex items-center justify-between gap-3 p-4 rounded-lg border-2",
+        styles.borderColor,
+      )}
+    >
+      <div className="flex items-center gap-3 min-w-0 flex-1">
+        <div
+          className={cn(
+            "w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0",
+            styles.iconBg,
+          )}
+        >
+          <Icon className={cn("w-5 h-5", styles.iconColor)} />
         </div>
-      </td>
-      <td
-        className={cn(
-          "px-6 py-2.5 text-right tabular-nums",
-          bold && "font-semibold",
-          valueClass,
-        )}
-      >
-        {sign}
+        <div className="font-bold text-base">{label}</div>
+      </div>
+      <div className={cn("text-xl font-bold tabular-nums", styles.valueColor)}>
+        {isExpense && value > 0 ? "−" : ""}
         {formatCurrency(value)}
-      </td>
-      <td className="px-6 py-2.5 text-right tabular-nums text-xs text-muted-foreground">
-        {pct}
-      </td>
-    </tr>
+      </div>
+    </div>
   );
 }
 
-function ProfitRow({ profit, pctText }: { profit: number; pctText: string }) {
-  const isProfit = profit >= 0;
+// ============================================================================
+// SECTION CARD - giảm trừ (label thường, có sub-items)
+// ============================================================================
+function SectionCard({
+  label,
+  totalValue,
+  children,
+}: {
+  label: string;
+  totalValue: number;
+  children: React.ReactNode;
+}) {
   return (
-    <tr className="border-t-2 border-border bg-muted/30">
-      <td className="px-6 py-3.5 font-bold text-base">
-        {isProfit ? "Lợi nhuận" : "Lỗ"}
-      </td>
-      <td
+    <div className="rounded-lg border border-border bg-muted/20">
+      <div className="flex items-center justify-between gap-3 p-4 border-b border-border">
+        <div className="font-bold text-base">{label}</div>
+        <div className="text-base font-bold tabular-nums text-muted-foreground">
+          −{formatCurrency(totalValue)}
+        </div>
+      </div>
+      <div className="p-3 space-y-1">{children}</div>
+    </div>
+  );
+}
+
+// ============================================================================
+// SECTION CARD MAIN - thuế phải nộp (label đậm, icon, border đậm)
+// ============================================================================
+function SectionCardMain({
+  icon: Icon,
+  label,
+  totalValue,
+  variant,
+  children,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  totalValue: number;
+  variant: "warning" | "primary";
+  children: React.ReactNode;
+}) {
+  const styles = {
+    warning: {
+      iconBg: "bg-warning/10",
+      iconColor: "text-warning",
+      valueColor: "text-warning",
+      borderColor: "border-warning/20",
+    },
+    primary: {
+      iconBg: "bg-primary/10",
+      iconColor: "text-primary",
+      valueColor: "text-primary",
+      borderColor: "border-primary/20",
+    },
+  }[variant];
+
+  return (
+    <div className={cn("rounded-lg border-2", styles.borderColor)}>
+      <div className="flex items-center justify-between gap-3 p-4 border-b border-border">
+        <div className="flex items-center gap-3 min-w-0 flex-1">
+          <div
+            className={cn(
+              "w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0",
+              styles.iconBg,
+            )}
+          >
+            <Icon className={cn("w-5 h-5", styles.iconColor)} />
+          </div>
+          <div className="font-bold text-base">{label}</div>
+        </div>
+        <div className={cn("text-xl font-bold tabular-nums", styles.valueColor)}>
+          {formatCurrency(totalValue)}
+        </div>
+      </div>
+      <div className="p-3 space-y-1">{children}</div>
+    </div>
+  );
+}
+
+// ============================================================================
+// SUB ROW - dòng con bên trong SectionCard
+// ============================================================================
+function SubRow({
+  label,
+  value,
+  emphasized,
+  variantText,
+  prefix,
+}: {
+  label: string;
+  value: number;
+  emphasized?: boolean;
+  variantText?: "success" | "warning";
+  prefix?: string;
+}) {
+  const colorClass =
+    variantText === "success"
+      ? "text-success"
+      : variantText === "warning"
+        ? "text-warning"
+        : "";
+
+  return (
+    <div className="flex items-center justify-between gap-3 px-3 py-2 rounded hover:bg-muted/40">
+      <div className="text-sm text-muted-foreground">{label}</div>
+      <div
         className={cn(
-          "px-6 py-3.5 text-right tabular-nums font-bold text-lg",
-          isProfit ? "text-success" : "text-destructive",
+          "text-sm tabular-nums",
+          emphasized ? "font-semibold" : "",
+          colorClass,
         )}
       >
-        {isProfit ? "+" : ""}
-        {formatCurrency(profit)}
-      </td>
-      <td className="px-6 py-3.5 text-right tabular-nums text-xs font-medium">
-        {pctText}
-      </td>
-    </tr>
+        {prefix ?? ""}
+        {formatCurrency(value)}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// PROFIT CARD - nổi bật nhất, có gradient
+// ============================================================================
+function ProfitCard({ profit }: { profit: number }) {
+  const isProfit = profit >= 0;
+  return (
+    <div
+      className={cn(
+        "rounded-lg border-2 p-5 relative overflow-hidden",
+        isProfit
+          ? "border-success/30 bg-success/5"
+          : "border-destructive/30 bg-destructive/5",
+      )}
+    >
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <div
+            className={cn(
+              "w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0",
+              isProfit ? "bg-success/15" : "bg-destructive/15",
+            )}
+          >
+            <Sparkles
+              className={cn(
+                "w-6 h-6",
+                isProfit ? "text-success" : "text-destructive",
+              )}
+            />
+          </div>
+          <div>
+            <div className="text-xs uppercase tracking-wider font-semibold text-muted-foreground">
+              {isProfit ? "Lợi nhuận" : "Lỗ"}
+            </div>
+            <div
+              className={cn(
+                "text-2xl font-bold tabular-nums mt-0.5",
+                isProfit ? "text-success" : "text-destructive",
+              )}
+            >
+              {isProfit ? "+" : ""}
+              {formatCurrency(profit)}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
