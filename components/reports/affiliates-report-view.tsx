@@ -5,7 +5,7 @@ import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { Search, AlertTriangle, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
+import { Search, AlertTriangle, ArrowUpDown, ArrowUp, ArrowDown, Clock } from "lucide-react";
 import { ReportPeriodSelector } from "./period-selector";
 import { formatCurrency } from "@/lib/utils";
 import { cn } from "@/lib/utils";
@@ -36,7 +36,7 @@ interface Props {
   previousLabel: string;
 }
 
-type SortKey = "name" | "gross" | "net" | "received" | "deposited" | "undeposited" | "count";
+type SortKey = "name" | "gross" | "net" | "pending" | "received" | "deposited" | "undeposited" | "count";
 type SortDir = "asc" | "desc";
 
 export function AffiliatesReportView({
@@ -72,6 +72,8 @@ export function AffiliatesReportView({
           return (Number(a.total_gross) - Number(b.total_gross)) * dir;
         case "net":
           return (Number(a.total_net) - Number(b.total_net)) * dir;
+        case "pending":
+          return (Number(a.pending_net) - Number(b.pending_net)) * dir;
         case "received":
           return (Number(a.received_net) - Number(b.received_net)) * dir;
         case "deposited":
@@ -141,6 +143,7 @@ export function AffiliatesReportView({
       "Gross",
       "Thuế KT",
       "Net",
+      "Shopee chưa chuyển",
       "Đã nhận",
       "Đã nộp",
       "Đang cầm",
@@ -152,6 +155,7 @@ export function AffiliatesReportView({
       Number(a.total_gross),
       Number(a.total_tax),
       Number(a.total_net),
+      Number(a.pending_net),
       Number(a.received_net),
       Number(a.total_deposited),
       Number(a.undeposited),
@@ -164,6 +168,7 @@ export function AffiliatesReportView({
       totals.gross,
       totals.tax,
       totals.net,
+      totals.pending,
       totals.received,
       totals.deposited,
       totals.undeposited,
@@ -290,6 +295,14 @@ export function AffiliatesReportView({
                     align="right"
                   />
                   <SortableHeader
+                    label="Shopee chưa chuyển"
+                    sortKey="pending"
+                    currentSort={sortKey}
+                    currentDir={sortDir}
+                    onClick={toggleSort}
+                    align="right"
+                  />
+                  <SortableHeader
                     label="Đã nhận"
                     sortKey="received"
                     currentSort={sortKey}
@@ -318,7 +331,7 @@ export function AffiliatesReportView({
               <tbody>
                 {filtered.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="px-6 py-12 text-center text-muted-foreground">
+                    <td colSpan={8} className="px-6 py-12 text-center text-muted-foreground">
                       Không có affiliate nào có hoa hồng trong khoảng thời gian này
                     </td>
                   </tr>
@@ -364,6 +377,16 @@ export function AffiliatesReportView({
                             </div>
                           )}
                         </td>
+                        <td className="px-6 py-3 text-right tabular-nums">
+                          {Number(a.pending_net) > 0 ? (
+                            <span className="text-warning font-medium inline-flex items-center gap-1">
+                              <Clock className="w-3 h-3" />
+                              {formatCurrency(a.pending_net)}
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                        </td>
                         <td className="px-6 py-3 text-right tabular-nums text-success">
                           {formatCurrency(a.received_net)}
                         </td>
@@ -399,6 +422,9 @@ export function AffiliatesReportView({
                     </td>
                     <td className="px-6 py-3 text-right tabular-nums">
                       {formatCurrency(totals.net)}
+                    </td>
+                    <td className="px-6 py-3 text-right tabular-nums text-warning">
+                      {formatCurrency(totals.pending)}
                     </td>
                     <td className="px-6 py-3 text-right tabular-nums text-success">
                       {formatCurrency(totals.received)}
