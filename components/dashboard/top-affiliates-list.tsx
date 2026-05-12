@@ -18,12 +18,12 @@ export function TopAffiliatesList({ data }: Props) {
     );
   }
 
-  const maxValue = Math.max(...data.map((d) => Number(d.total_gross)));
+  const maxValue = Math.max(...data.map((d) => Number(d.total_net)));
 
   return (
     <div className="divide-y divide-border">
       {data.map((a, idx) => {
-        const value = Number(a.total_gross);
+        const value = Number(a.total_net);
         const percent = maxValue > 0 ? (value / maxValue) * 100 : 0;
         return (
           <Link
