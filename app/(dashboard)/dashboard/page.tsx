@@ -8,16 +8,21 @@ import {
   TrendingUp,
   Receipt,
   Coins,
+  CircleDollarSign,
+  Banknote,
+  Inbox,
   ArrowRight,
-  Users,
+  History,
   Database,
   FileText,
 } from "lucide-react";
 import Link from "next/link";
 import { formatCurrency } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import { DashboardAlerts } from "@/components/dashboard/dashboard-alerts";
 import { RevenueTrendChart } from "@/components/dashboard/revenue-trend-chart";
 import { TopAffiliatesList } from "@/components/dashboard/top-affiliates-list";
+import { RecentCommissionsFeed } from "@/components/dashboard/recent-commissions-feed";
 import { calculateYtdAdditionalTax } from "@/lib/ytd-tax";
 import type {
   DashboardAlert,
@@ -46,8 +51,10 @@ export default async function DashboardPage() {
     affiliatesRes,
     cashBalanceRes,
     bankAccountsRes,
-    pendingShopeeRes,
+    shopeeReceivedRes,
+    shopeePendingRes,
     ytdCommissionsRes,
+    recentCommissionsRes,
   ] = await Promise.all([
     supabase.rpc("get_dashboard_alerts"),
     supabase.rpc("get_monthly_revenue_trend"),
@@ -63,16 +70,33 @@ export default async function DashboardPage() {
       .in("status", ["active", "paused"]),
     supabase.rpc("get_cash_balance"),
     supabase.from("bank_accounts").select("id").eq("is_active", true),
+    // Shopee đã chuyển (is_received = true) trong tháng này
+    supabase
+      .from("shopee_payments")
+      .select("total_net")
+      .eq("is_received", true)
+      .eq("is_deleted", false)
+      .gte("payment_date", startOfMonth)
+      .lte("payment_date", endOfMonth),
+    // Shopee chưa chuyển
     supabase
       .from("shopee_payments")
       .select("total_net")
       .eq("is_received", false)
       .eq("is_deleted", false),
+    // YTD commissions cho tax
     supabase
       .from("commissions")
       .select("account_id, gross_amount, tax_withheld, net_amount, status")
       .eq("is_deleted", false)
       .eq("period_year", currentYear),
+    // 8 hoa hồng mới ghi nhận gần đây
+    supabase
+      .from("commissions")
+      .select("id, account_id, earned_date, gross_amount, net_amount, status, created_at")
+      .eq("is_deleted", false)
+      .order("created_at", { ascending: false })
+      .limit(8),
   ]);
 
   const alerts = (alertsRes.data ?? []) as DashboardAlert[];
@@ -90,22 +114,25 @@ export default async function DashboardPage() {
     totalBankBalance += (data as number) ?? 0;
   }
 
-  const pendingShopeeTotal = (pendingShopeeRes.data ?? []).reduce(
+  const shopeeReceivedTotal = (shopeeReceivedRes.data ?? []).reduce(
+    (s, p) => s + Number(p.total_net),
+    0,
+  );
+  const shopeePendingTotal = (shopeePendingRes.data ?? []).reduce(
     (s, p) => s + Number(p.total_net),
     0,
   );
 
   const thisMonthData = monthlyTrend[monthlyTrend.length - 1];
+  const thisMonthGross = thisMonthData?.total_gross ?? 0;
+  const thisMonthNet = thisMonthData?.total_net ?? 0;
 
-  // ============================================================================
-  // Tính tổng Thuế đã nộp + Thuế cần nộp thêm cho TẤT CẢ affiliate
-  // ============================================================================
+  // Tính thuế tổng
   const ytdCommissions = (ytdCommissionsRes.data ?? []) as Pick<
     Commission,
     "account_id" | "gross_amount" | "tax_withheld" | "net_amount" | "status"
   >[];
 
-  // Map gross + tax theo affiliate
   const ytdMap = new Map<string, { gross: number; tax: number }>();
   for (const c of ytdCommissions) {
     const entry = ytdMap.get(c.account_id) ?? { gross: 0, tax: 0 };
@@ -117,6 +144,7 @@ export default async function DashboardPage() {
   let totalTaxWithheld = 0;
   let totalTaxAdditional = 0;
   let totalTaxRefund = 0;
+  let totalTaxPayable = 0; // Tổng thuế phải nộp (= taxPayableYtd)
 
   for (const a of affiliates) {
     const ytd = ytdMap.get(a.id) ?? { gross: 0, tax: 0 };
@@ -133,9 +161,23 @@ export default async function DashboardPage() {
     });
 
     totalTaxWithheld += result.taxWithheldYtd;
+    totalTaxPayable += result.taxPayableYtd;
     if (result.status === "owe") totalTaxAdditional += result.taxAdditional;
     if (result.status === "refund") totalTaxRefund += Math.abs(result.taxAdditional);
   }
+
+  // Recent commissions với tên affiliate
+  const affiliateNameMap = new Map(affiliates.map((a) => [a.id, a.full_name]));
+  const recentCommissions = (recentCommissionsRes.data ?? []).map((c) => ({
+    id: c.id,
+    account_id: c.account_id,
+    affiliate_name: affiliateNameMap.get(c.account_id) ?? "Không rõ",
+    earned_date: c.earned_date,
+    gross_amount: Number(c.gross_amount),
+    net_amount: Number(c.net_amount),
+    status: c.status,
+    created_at: c.created_at,
+  }));
 
   const highAlerts = alerts.filter((a) => a.severity === "high").length;
 
@@ -148,74 +190,112 @@ export default async function DashboardPage() {
         }`}
       />
 
-      {/* 6 KPI Cards ở đầu */}
-      <div className="grid gap-4 grid-cols-2 md:grid-cols-3 lg:grid-cols-6">
-        <KpiCard
+      {/* HÀNG 1: 3 KPI lớn */}
+      <div className="grid gap-4 md:grid-cols-3">
+        <BigKpiCard
+          label="Doanh thu tháng này (NET)"
+          value={formatCurrency(thisMonthNet)}
+          subtitle={`Sau khi trừ thuế khấu trừ • ${thisMonthData?.commission_count ?? 0} đợt`}
+          icon={CircleDollarSign}
+          variant="primary"
+        />
+        <BigKpiCard
+          label="Shopee đã chuyển tháng này"
+          value={formatCurrency(shopeeReceivedTotal)}
+          subtitle={`${shopeeReceivedRes.data?.length ?? 0} đợt thanh toán`}
+          icon={Banknote}
+          variant="success"
+          href="/reconciliation"
+        />
+        <BigKpiCard
+          label="Shopee chưa chuyển"
+          value={formatCurrency(shopeePendingTotal)}
+          subtitle={`${shopeePendingRes.data?.length ?? 0} đợt đang chờ`}
+          icon={Inbox}
+          variant={shopeePendingTotal > 0 ? "warning" : "default"}
+          href="/reconciliation"
+        />
+      </div>
+
+      {/* HÀNG 2: 6 KPI nhỏ */}
+      <div className="grid gap-3 grid-cols-2 md:grid-cols-3 lg:grid-cols-6">
+        <SmallKpiCard
+          label="Doanh thu tháng (Gross)"
+          value={formatCurrency(thisMonthGross)}
+          icon={TrendingUp}
+        />
+        <SmallKpiCard
+          label="Tổng thuế phải nộp"
+          value={formatCurrency(totalTaxPayable)}
+          subtitle="YTD theo lũy tiến"
+          icon={Receipt}
+          href="/tax"
+        />
+        <SmallKpiCard
+          label="Thuế đã nộp"
+          value={formatCurrency(totalTaxWithheld)}
+          subtitle="YTD đã khấu trừ"
+          icon={Receipt}
+          variant="success"
+          href="/tax"
+        />
+        <SmallKpiCard
+          label="Thuế cần nộp thêm"
+          value={formatCurrency(totalTaxAdditional)}
+          subtitle={
+            totalTaxRefund > 0
+              ? `Hoàn ${formatCurrency(totalTaxRefund)}`
+              : "Quyết toán cuối năm"
+          }
+          icon={Coins}
+          variant={totalTaxAdditional > 0 ? "warning" : "default"}
+          href="/tax"
+        />
+        <SmallKpiCard
           label="Số dư tiền mặt"
           value={formatCurrency(cashBalance)}
-          subtitle="Quỹ TM công ty"
           icon={Wallet}
           href="/cash-book"
         />
-        <KpiCard
+        <SmallKpiCard
           label="Số dư ngân hàng"
           value={formatCurrency(totalBankBalance)}
           subtitle={`${bankAccountsRes.data?.length ?? 0} TK`}
           icon={Building2}
           href="/bank-book"
         />
-        <KpiCard
-          label="Doanh thu tháng"
-          value={formatCurrency(thisMonthData?.total_gross ?? 0)}
-          subtitle={`${thisMonthData?.commission_count ?? 0} đợt HH`}
-          icon={TrendingUp}
-          variant="success"
-        />
-        <KpiCard
-          label="Shopee chưa chuyển"
-          value={formatCurrency(pendingShopeeTotal)}
-          subtitle={`${pendingShopeeRes.data?.length ?? 0} đợt`}
-          icon={AlertTriangle}
-          variant={pendingShopeeTotal > 0 ? "warning" : "default"}
-          href="/reconciliation"
-        />
-        <KpiCard
-          label="Thuế đã nộp"
-          value={formatCurrency(totalTaxWithheld)}
-          subtitle={`YTD ${currentYear} (${affiliates.length} affiliate)`}
-          icon={Receipt}
-          href="/tax"
-        />
-        <KpiCard
-          label="Thuế cần nộp thêm"
-          value={formatCurrency(totalTaxAdditional)}
-          subtitle={
-            totalTaxRefund > 0
-              ? `Hoàn ${formatCurrency(totalTaxRefund)}`
-              : "Khi quyết toán cuối năm"
-          }
-          icon={Coins}
-          variant={totalTaxAdditional > 0 ? "warning" : "default"}
-          href="/tax"
-        />
       </div>
 
-      {/* Layout 2 cột: Bên trái Chart 12 tháng, Bên phải Alerts + Top */}
+      {/* Layout 2 cột */}
       <div className="grid gap-6 lg:grid-cols-3">
-        {/* Bên trái: Chart 12 tháng (chiếm 2 cột) */}
-        <Card className="lg:col-span-2">
-          <CardHeader>
-            <CardTitle className="text-base">Doanh thu 12 tháng gần đây</CardTitle>
-            <p className="text-xs text-muted-foreground">
-              Tổng hoa hồng gross theo tháng (tất cả affiliate)
-            </p>
-          </CardHeader>
-          <CardContent>
-            <RevenueTrendChart data={monthlyTrend} />
-          </CardContent>
-        </Card>
+        {/* Bên trái: Chart 12 tháng + Activity feed */}
+        <div className="lg:col-span-2 space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Doanh thu 12 tháng gần đây</CardTitle>
+              <p className="text-xs text-muted-foreground">
+                Tổng hoa hồng gross theo tháng (tất cả affiliate)
+              </p>
+            </CardHeader>
+            <CardContent>
+              <RevenueTrendChart data={monthlyTrend} />
+            </CardContent>
+          </Card>
 
-        {/* Bên phải: Alerts + Top affiliate */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Hoạt động gần đây</CardTitle>
+              <p className="text-xs text-muted-foreground">
+                {recentCommissions.length} đợt hoa hồng mới được ghi nhận
+              </p>
+            </CardHeader>
+            <CardContent className="p-0">
+              <RecentCommissionsFeed commissions={recentCommissions} />
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Bên phải: Alerts + Top */}
         <div className="space-y-6">
           <DashboardAlerts alerts={alerts} />
 
@@ -223,7 +303,7 @@ export default async function DashboardPage() {
             <CardHeader>
               <CardTitle className="text-base">Top affiliate tháng này</CardTitle>
               <p className="text-xs text-muted-foreground">
-                Theo doanh thu hoa hồng (gross)
+                Theo doanh thu net (đã trừ thuế)
               </p>
             </CardHeader>
             <CardContent className="p-0">
@@ -237,7 +317,7 @@ export default async function DashboardPage() {
       <div className="grid gap-4 md:grid-cols-3">
         <QuickLink
           href="/audit-log"
-          icon={Users}
+          icon={History}
           title="Lịch sử thay đổi"
           desc="Xem ai đã sửa/xóa gì gần đây"
         />
@@ -258,7 +338,10 @@ export default async function DashboardPage() {
   );
 }
 
-function KpiCard({
+// ============================================================================
+// BIG KPI CARD (hàng 1 - 3 ô lớn)
+// ============================================================================
+function BigKpiCard({
   label,
   value,
   subtitle,
@@ -269,6 +352,79 @@ function KpiCard({
   label: string;
   value: string;
   subtitle: string;
+  icon: React.ComponentType<{ className?: string }>;
+  variant?: "default" | "primary" | "success" | "warning" | "danger";
+  href?: string;
+}) {
+  const iconStyles = {
+    default: "bg-muted text-muted-foreground",
+    primary: "bg-primary/10 text-primary",
+    success: "bg-success/10 text-success",
+    warning: "bg-warning/10 text-warning",
+    danger: "bg-destructive/10 text-destructive",
+  }[variant];
+
+  const valueColor = {
+    default: "",
+    primary: "text-primary",
+    success: "text-success",
+    warning: "text-warning",
+    danger: "text-destructive",
+  }[variant];
+
+  const content = (
+    <Card
+      className={
+        href
+          ? "hover:border-primary/40 hover:shadow-md transition-all cursor-pointer h-full"
+          : "h-full"
+      }
+    >
+      <CardContent className="p-6">
+        <div className="flex items-start gap-4">
+          <div
+            className={cn(
+              "w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0",
+              iconStyles,
+            )}
+          >
+            <Icon className="w-6 h-6" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-xs text-muted-foreground font-medium">{label}</p>
+            <p
+              className={cn(
+                "text-2xl font-semibold mt-1.5 tabular-nums tracking-tight",
+                valueColor,
+              )}
+            >
+              {value}
+            </p>
+            <p className="text-xs text-muted-foreground mt-1.5">{subtitle}</p>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+
+  if (href) return <Link href={href}>{content}</Link>;
+  return content;
+}
+
+// ============================================================================
+// SMALL KPI CARD (hàng 2 - 6 ô nhỏ)
+// ============================================================================
+function SmallKpiCard({
+  label,
+  value,
+  subtitle,
+  icon: Icon,
+  variant = "default",
+  href,
+}: {
+  label: string;
+  value: string;
+  subtitle?: string;
   icon: React.ComponentType<{ className?: string }>;
   variant?: "default" | "success" | "warning" | "danger";
   href?: string;
@@ -297,9 +453,11 @@ function KpiCard({
             <p className="text-base font-semibold mt-1.5 tabular-nums tracking-tight break-all">
               {value}
             </p>
-            <p className="text-[10px] text-muted-foreground mt-1 truncate">
-              {subtitle}
-            </p>
+            {subtitle && (
+              <p className="text-[10px] text-muted-foreground mt-1 truncate">
+                {subtitle}
+              </p>
+            )}
           </div>
           <Icon className={`w-4 h-4 ${iconColor} flex-shrink-0`} />
         </div>
