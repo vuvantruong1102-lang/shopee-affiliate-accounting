@@ -1,133 +1,191 @@
-# Phase 8 Fix 4 — Sửa công thức Báo cáo P&L
+# Phase 9 — Đối soát Shopee đơn giản hóa + Auto link Commission
 
-## 🐛 Vấn đề
+## 🎯 Thay đổi quan trọng
 
-Báo cáo P&L hiện đang tính sai:
+**Bỏ workflow cũ**: Đối soát Shopee (Phase 4) + Nhập hoa hồng (Phase 2) → 2 việc riêng
 
-```
-Lãi (cũ) = Doanh thu Net − Chi phí (Marketing/Lương/Vận hành/Khác)
-        = (Gross − thuế tạm 10%) − Chi phí
-```
+**Workflow mới**: Đối soát Shopee = Nhập hoa hồng (1 lần thao tác)
 
-→ **Số thuế phải nộp thêm (theo lũy tiến)** không được trừ → lãi cao hơn thực tế.
-
-Từ screenshot của bạn:
-- Doanh thu Gross: 2.092.955.403đ
-- Chi phí: 20.000.000đ (Marketing FB Ads)
-- **Lãi đang hiển thị (sai)**: 1.863.659.862đ
-- **Lãi thực tế** sẽ thấp hơn rất nhiều sau khi trừ thuế lũy tiến
-
-## ✅ Sửa theo Phương án A
-
-Đồng nhất với Calculator:
+## 🔄 Workflow mới
 
 ```
-Lãi = Doanh thu Gross − Tổng thuế phải nộp − Chi phí
+1. Shopee thanh toán đợt mới
+   ↓
+2. Vào /reconciliation → "Thêm đợt thanh toán mới"
+   - Chọn affiliate
+   - Mã thanh toán (tùy chọn)
+   - Ngày thanh toán
+   - Gross / Thuế / Net (auto tính)
+   - ☑ "Đã nhận tiền" (nếu đã thấy tiền về)
+   ↓
+3. Bấm "Xác nhận đợt thanh toán"
+   ↓
+4. Hệ thống TỰ ĐỘNG:
+   ✓ Tạo bản ghi shopee_payments
+   ✓ Tạo bản ghi commissions tương ứng
+   ✓ Link 2 bản ghi qua commission_id
+   ✓ Status:
+     - Đã check "Đã nhận" → "received" (Shopee đã thanh toán)
+     - Không check → "pending" (Shopee chưa thanh toán)
+   ↓
+5. Khi tiền về sau (nếu chưa check ở B3):
+   - Bấm nút "Xác nhận đã nhận" trên item đó
+   - → Cập nhật cả 2 bảng: payment.is_received=true + commission.status='received'
 ```
 
-Trong đó:
-- **Doanh thu Gross**: Tổng hoa hồng trước thuế (Shopee báo)
-- **Tổng thuế phải nộp**: Tính theo lũy tiến 5 bậc cho từng affiliate (như Dashboard KPI "Tổng thuế phải nộp")
-- **Chi phí**: Tổng chi phí thực tế (Marketing, Lương, Vận hành...)
+## 🎨 UI mới
 
-## 🎨 UI thay đổi
-
-### 4 KPI lớn ở đầu (thêm 1 cái)
-
-| Trước | Sau |
-|---|---|
-| 3 KPI: Doanh thu Net / Chi phí / Lãi | **4 KPI**: Doanh thu Gross / **Tổng thuế phải nộp** / Chi phí / Lãi |
-
-KPI "Thuế phải nộp" có color `warning`, tăng = xấu (invertedColor).
-
-### Bảng P&L chi tiết — 3 sections
+### Layout 2 cột
 
 ```
-DOANH THU
-  Doanh thu Gross                              +2.092.955.403đ   100%
-    Trong đó Net (sau Shopee KT 10%)            1.883.659.862đ   90%
-
-THUẾ TNCN
-  Tổng thuế phải nộp                            −XXX.XXX.XXXđ    XX%
-    Thuế tạm nộp (Shopee KT 10%)                209.295.541đ
-    Thuế còn phải nộp thêm (quyết toán)         XX.XXX.XXXđ
-
-CHI PHÍ
-  Marketing & Quảng cáo                         −20.000.000đ     1.1%
-  Lương nhân viên                                —
-  Vận hành                                       —
-  Thuế, phí khác                                 —
-  Khác                                           —
-  Tổng chi phí                                  −20.000.000đ     1.1%
-
-═══════════════════════════════════════════════════════════════════
-LÃI                                            +XXX.XXX.XXXđ    XX%
+┌─────────────────────────┬───────────────────────────────────┐
+│ FORM bên trái (2/5)     │ DANH SÁCH bên phải (3/5)         │
+│                         │                                   │
+│ Affiliate [dropdown]    │ [Tất cả] [Chờ nhận] [Đã nhận]   │
+│ Mã TT  + Ngày           │ ─────────────────────────         │
+│ Gross   [text-lg bold]  │ • Nguyễn Văn A • [Chờ nhận]      │
+│ Thuế    [text-lg bold]  │   📅 11/05/2026                   │
+│ Net (auto)              │   Gross 15tr Thuế 1.5tr Net 13tr  │
+│ ☑ Đã nhận tiền          │   [Xác nhận đã nhận] ↪️ ✏️ 🗑       │
+│ Ghi chú                 │ ─────────────────────────         │
+│ [Xác nhận đợt thanh    │ • Trần Văn B • [Đã thanh toán]   │
+│  toán]                  │   ...                             │
+└─────────────────────────┴───────────────────────────────────┘
 ```
 
-### Pie chart "Cơ cấu trừ ra khỏi DT"
+### 3 KPI ở đầu
 
-Đổi từ "Cơ cấu chi phí" → bao gồm cả **Thuế TNCN** + Chi phí. Tổng (Thuế + Chi phí) là phần bị trừ khỏi Gross.
+- **Đang chờ nhận**: số đợt chưa received
+- **Đã nhận**: số đợt đã received
+- **Tổng đợt**: tất cả
 
-### % tính trên Gross
+### Form tính năng thông minh
 
-Tất cả % giờ tính trên **Doanh thu Gross** (100%), không phải Net như trước. Như vậy thuế và chi phí sẽ thấy rõ tỷ trọng so với tổng doanh thu.
+- ✅ **Auto tính Thuế** = 10% Gross (khi nhập Gross lần đầu)
+- ✅ **Auto tính Net** = Gross − Thuế (có thể tắt nếu Shopee có rounding khác)
+- ✅ **Cảnh báo trùng mã**: khi nhập mã đã tồn tại → hiện list các đợt trùng (vẫn cho tạo)
+- ✅ **Disable đổi affiliate khi edit** (vì commission đã link với affiliate cũ)
+
+### Danh sách payments
+
+- Filter theo trạng thái (Tất cả / Chờ nhận / Đã nhận)
+- Background tint: vàng nhẹ cho pending, xanh nhẹ cho received
+- Mỗi item hiển thị:
+  - Tên affiliate + Badge trạng thái
+  - Mã + ngày
+  - Gross / Thuế / Net inline
+  - Nút "Xác nhận đã nhận" (hoặc "Hoàn tác") + nút Sửa/Xóa (ẩn, hiện khi hover)
 
 ## 📋 Triển khai
 
-### Bước 1: Chạy SQL
+### Bước 1: Chạy SQL migration
 
-Vào Supabase SQL Editor → paste `supabase/migrations/20260514000002_fix_pnl_use_gross.sql` → Run.
+Vào Supabase SQL Editor → paste `supabase/migrations/20260514000003_phase9_link_shopee_commission.sql` → Run.
 
-Migration này:
-- DROP RPC `get_pnl_report` cũ
-- CREATE lại với return type mới (thêm `total_commission_tax_withheld`, bỏ `profit_loss/profit_margin` — tính ở client)
+Migration này tạo/sửa:
+- Thêm cột `commission_id` vào `shopee_payments`
+- Bỏ UNIQUE constraint trên `payment_code`
+- 7 RPC: `confirm_shopee_payment`, `mark_shopee_payment_received`, `unmark_shopee_payment_received`, `update_shopee_payment`, `delete_shopee_payment`, `check_duplicate_payment_code`
 
-### Bước 2: Upload 2 file
+### Bước 2: Upload 5 file code
 
 ```
-app/(dashboard)/reports/pnl/page.tsx                ← GHI ĐÈ
-components/reports/pnl-report-view.tsx              ← GHI ĐÈ
+app/(dashboard)/reconciliation/page.tsx              ← GHI ĐÈ
+app/(dashboard)/reconciliation/actions.ts            ← GHI ĐÈ
+components/reconciliation/reconciliation-view.tsx    ← MỚI hoặc GHI ĐÈ
+components/reconciliation/confirm-payment-form.tsx   ← MỚI
+components/reconciliation/payment-list.tsx           ← MỚI
 ```
+
+⚠️ Đặt file đúng vị trí, không tạo `lib/components/...`
 
 ### Bước 3: Commit + Push
 
-Message: `Phase 8 Fix 4: P&L use Gross + total tax payable`
+Message: `Phase 9: Link Shopee payment with auto-commission`
 
 ### Bước 4: Test
 
-1. Vào `/reports/pnl` (cùng kỳ như screenshot)
-2. Kỳ vọng thấy:
-   - **4 KPI** ở đầu (thêm "Tổng thuế phải nộp")
-   - KPI "Tổng thuế phải nộp" có số > 0 (tính từ lũy tiến)
-   - Bảng P&L có section "THUẾ TNCN" với 2 dòng phụ (tạm nộp + nộp thêm)
-   - **Lãi sẽ THẤP HƠN** so với 1.863.659.862đ (vì đã trừ thuế)
-3. KPI **biên lợi nhuận** giảm xuống đáng kể
-4. Pie chart "Cơ cấu" có thêm phần "Thuế TNCN phải nộp" (màu vàng)
+**Test 1 - Tạo đợt mới**:
+1. Vào `/reconciliation`
+2. Form bên trái: chọn affiliate, nhập mã + ngày + Gross 1.000.000đ
+3. Tự tính: Thuế 100.000đ, Net 900.000đ
+4. KHÔNG check "Đã nhận tiền"
+5. Bấm "Xác nhận đợt thanh toán"
+6. Kỳ vọng:
+   - Toast "Đã xác nhận đợt thanh toán (chưa nhận tiền)"
+   - Item xuất hiện bên phải với badge "Chưa thanh toán"
+   - Vào `/affiliates/[id]` của affiliate đó → trong list "Hoa hồng gần đây" có 1 dòng mới với status pending
+   - Vào Dashboard → KPI "Doanh thu tháng" tăng đúng
 
-## 💡 Lưu ý
+**Test 2 - Đánh dấu nhận**:
+1. Bấm nút "Xác nhận đã nhận" trên item
+2. Kỳ vọng:
+   - Toast "Đã đánh dấu nhận tiền"
+   - Badge đổi từ "Chưa thanh toán" → "Đã thanh toán"
+   - Background đổi vàng → xanh
+   - Trong trang affiliate, commission tương ứng status đổi pending → received
 
-### Tính tax_payable trong page (không phải SQL)
+**Test 3 - Sửa đợt**:
+1. Hover vào item → bấm nút ✏️
+2. Form bên trái tự fill data
+3. Sửa Gross thành 2.000.000đ
+4. Bấm "Cập nhật đợt thanh toán"
+5. Kỳ vọng: số tiền cập nhật cả 2 bảng (payment + commission)
 
-Logic lũy tiến 5 bậc phức tạp, đã có sẵn trong `lib/ytd-tax.ts` (TypeScript). Thay vì viết lại trong PL/pgSQL, page.tsx sẽ:
-1. Lấy danh sách affiliate active
-2. Lấy commissions trong khoảng
-3. Với mỗi affiliate → gọi `calculateYtdAdditionalTax` → cộng dồn `taxPayableYtd`
+**Test 4 - Cảnh báo trùng**:
+1. Tạo mới, nhập payment_code đã tồn tại
+2. Sau 0.5s → hiện box vàng "Mã này đã có X đợt trùng"
+3. Vẫn cho tạo bình thường
 
-Cách này đảm bảo logic thuế ở **một nơi duy nhất**, dễ maintain.
+**Test 5 - Xóa**:
+1. Hover → 🗑
+2. Confirm dialog
+3. Cả payment và commission đều bị xóa mềm
 
-### "Số tháng trong khoảng"
+## 💡 Lưu ý quan trọng
 
-Để áp lũy tiến đúng (tính TNTT/tháng), cần biết khoảng thời gian có bao nhiêu tháng. Logic:
-```typescript
-const monthsInRange = Math.max(1, Math.min(12, 
-  Math.round((toD - fromD) / 30 days) + 1
-));
+### Dữ liệu cũ
+
+⚠️ **Các đợt thanh toán Shopee và commissions cũ (trước Phase 9) KHÔNG được tự động link với nhau**. Chúng sẽ tiếp tục hoạt động độc lập như cũ.
+
+Chỉ các **đợt mới tạo sau Phase 9** mới có liên kết tự động.
+
+Nếu muốn link dữ liệu cũ, chạy SQL thủ công:
+```sql
+-- Tham khảo - không tự động chạy
+UPDATE shopee_payments sp
+SET commission_id = c.id
+FROM commissions c
+WHERE c.account_id = sp.account_id
+  AND c.earned_date = sp.payment_date
+  AND ABS(c.net_amount - sp.total_net) < 1000
+  AND sp.commission_id IS NULL;
 ```
 
-- Tháng (30 ngày): 1 tháng
-- Quý (90 ngày): 3 tháng  
-- Năm (365 ngày): cap ở 12 tháng
+### Tại sao bỏ breakdown theo ngày?
 
-### Khi có Lương
+Bạn yêu cầu không cần nhập chi tiết hàng ngày → đơn giản hơn nhiều, đặc biệt khi có 10-20 affiliate × 2 đợt/tuần = 20-40 đợt/tuần. Mỗi đợt giờ chỉ cần 3 con số thay vì 5-7 dòng breakdown.
 
-Affiliate có `has_company_salary = true` → tự cộng lương vào TNTT khi tính thuế (giống logic Calculator).
+Nếu cần xem chi tiết theo ngày, bạn vẫn vào Shopee xem.
+
+### Trùng mã payment_code
+
+Trên Shopee, mỗi đợt thanh toán có mã riêng. Nhưng nhiều affiliate có thể chia sẻ cùng tài khoản Shopee (cùng `payment_code`), nên không phải trùng = lỗi. Hệ thống chỉ **cảnh báo** để bạn kiểm tra, vẫn cho tạo.
+
+### Mối quan hệ DB
+
+```
+shopee_payments              commissions
+─────────────────            ────────────
+id                  ───┐     id
+account_id             │     account_id  ← cùng affiliate
+payment_code           │     earned_date
+payment_date           └───→ ← commission_id (FK)
+total_gross                  gross_amount  ← cùng số
+total_tax                    tax_withheld  ← cùng số
+total_net                    net_amount    ← cùng số
+is_received      ←──────────→ status (pending/received)
+received_date    ←──────────→ received_date
+```
+
+Mọi update trên payment đều auto cascade sang commission (trừ delete: delete mềm cả 2).
