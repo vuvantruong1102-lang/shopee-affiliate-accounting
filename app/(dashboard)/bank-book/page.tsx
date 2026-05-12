@@ -2,9 +2,10 @@ import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { createClient } from "@/lib/supabase/server";
-import { Plus, Building2, AlertCircle } from "lucide-react";
+import { AlertCircle } from "lucide-react";
 import Link from "next/link";
 import { BankBookView } from "@/components/books/bank-book-view";
+import { BankBookActions } from "@/components/bank-book/bank-book-actions";
 import { getDateRange, type PeriodType } from "@/lib/date-period";
 import type {
   BankTransaction,
@@ -32,7 +33,7 @@ export default async function BankBookPage({ searchParams }: PageProps) {
   const { data: banksData } = await supabase
     .from("bank_accounts")
     .select("*")
-    .eq("is_active", true)
+    .or("is_deleted.is.null,is_deleted.eq.false")
     .order("created_at");
   const banks = (banksData ?? []) as BankAccount[];
 
@@ -50,7 +51,7 @@ export default async function BankBookPage({ searchParams }: PageProps) {
               Cần khai báo TK ngân hàng trước khi xem sổ
             </p>
             <Button asChild>
-              <Link href="/settings/bank-accounts">Khai báo ngay</Link>
+              <Link href="/settings">Khai báo ngay</Link>
             </Button>
           </CardContent>
         </Card>
@@ -66,7 +67,7 @@ export default async function BankBookPage({ searchParams }: PageProps) {
       .from("bank_transactions")
       .select("*")
       .eq("bank_account_id", selectedBank.id)
-      .eq("is_deleted", false)
+      .or("is_deleted.is.null,is_deleted.eq.false")
       .gte("trans_date", range.from)
       .lte("trans_date", range.to)
       .order("trans_date", { ascending: false })
@@ -91,7 +92,9 @@ export default async function BankBookPage({ searchParams }: PageProps) {
     supabase
       .from("affiliate_accounts")
       .select("id, full_name")
-      .eq("is_deleted", false),
+      .eq("is_deleted", false)
+      .in("status", ["active", "paused"])
+      .order("full_name"),
   ]);
 
   const transactions = (transactionsRes.data ?? []) as BankTransaction[];
@@ -118,19 +121,19 @@ export default async function BankBookPage({ searchParams }: PageProps) {
   const categories = (categoriesRes.data ?? []) as ExpenseCategory[];
   const affiliates = (affiliatesRes.data ?? []) as Pick<AffiliateAccount, "id" | "full_name">[];
 
+  // Pass bank list cho BankBookActions để dropdown chọn TK
+  const banksForActions = banks.map((b) => ({
+    id: b.id,
+    bank_name: b.bank_name,
+    account_number: b.account_number,
+  }));
+
   return (
     <div className="space-y-6 animate-fade-in">
       <PageHeader
         title="Sổ ngân hàng"
         description={`${selectedBank.bank_name} • ${range.label} • ${stats.transaction_count} giao dịch`}
-        action={
-          <Button asChild>
-            <Link href="/data-entry">
-              <Plus className="w-4 h-4" />
-              Nhập giao dịch
-            </Link>
-          </Button>
-        }
+        action={<BankBookActions bankAccounts={banksForActions} affiliates={affiliates} />}
       />
 
       <BankBookView
