@@ -2,7 +2,6 @@ import { PageHeader } from "@/components/layout/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { createClient } from "@/lib/supabase/server";
 import {
-  AlertTriangle,
   Wallet,
   Building2,
   TrendingUp,
@@ -15,6 +14,7 @@ import {
   History,
   Database,
   FileText,
+  Megaphone,
 } from "lucide-react";
 import Link from "next/link";
 import { formatCurrency } from "@/lib/utils";
@@ -55,6 +55,7 @@ export default async function DashboardPage() {
     shopeePendingRes,
     ytdCommissionsRes,
     recentCommissionsRes,
+    adsExpenseRes,
   ] = await Promise.all([
     supabase.rpc("get_dashboard_alerts"),
     supabase.rpc("get_monthly_revenue_trend"),
@@ -70,7 +71,6 @@ export default async function DashboardPage() {
       .in("status", ["active", "paused"]),
     supabase.rpc("get_cash_balance"),
     supabase.from("bank_accounts").select("id").eq("is_active", true),
-    // Shopee đã chuyển (is_received = true) trong tháng này
     supabase
       .from("shopee_payments")
       .select("total_net")
@@ -78,25 +78,24 @@ export default async function DashboardPage() {
       .eq("is_deleted", false)
       .gte("payment_date", startOfMonth)
       .lte("payment_date", endOfMonth),
-    // Shopee chưa chuyển
     supabase
       .from("shopee_payments")
       .select("total_net")
       .eq("is_received", false)
       .eq("is_deleted", false),
-    // YTD commissions cho tax
     supabase
       .from("commissions")
       .select("account_id, gross_amount, tax_withheld, net_amount, status")
       .eq("is_deleted", false)
       .eq("period_year", currentYear),
-    // 8 hoa hồng mới ghi nhận gần đây
     supabase
       .from("commissions")
       .select("id, account_id, earned_date, gross_amount, net_amount, status, created_at")
       .eq("is_deleted", false)
       .order("created_at", { ascending: false })
       .limit(8),
+    // ✨ NEW: chi phí ads tháng này
+    supabase.rpc("get_ads_expense_this_month").single(),
   ]);
 
   const alerts = (alertsRes.data ?? []) as DashboardAlert[];
@@ -105,7 +104,6 @@ export default async function DashboardPage() {
   const affiliates = (affiliatesRes.data ?? []) as AffiliateAccount[];
   const cashBalance = (cashBalanceRes.data as number) ?? 0;
 
-  // Tính tổng bank balance
   let totalBankBalance = 0;
   for (const bank of bankAccountsRes.data ?? []) {
     const { data } = await supabase.rpc("get_bank_balance", {
@@ -127,6 +125,18 @@ export default async function DashboardPage() {
   const thisMonthGross = thisMonthData?.total_gross ?? 0;
   const thisMonthNet = thisMonthData?.total_net ?? 0;
 
+  // Chi phí Facebook Ads/Marketing tháng này
+  const adsData = (adsExpenseRes.data ?? {
+    total_ads_expense: 0,
+    transaction_count: 0,
+    category_count: 0,
+  }) as {
+    total_ads_expense: number;
+    transaction_count: number;
+    category_count: number;
+  };
+  const adsExpense = Number(adsData.total_ads_expense);
+
   // Tính thuế tổng
   const ytdCommissions = (ytdCommissionsRes.data ?? []) as Pick<
     Commission,
@@ -144,7 +154,7 @@ export default async function DashboardPage() {
   let totalTaxWithheld = 0;
   let totalTaxAdditional = 0;
   let totalTaxRefund = 0;
-  let totalTaxPayable = 0; // Tổng thuế phải nộp (= taxPayableYtd)
+  let totalTaxPayable = 0;
 
   for (const a of affiliates) {
     const ytd = ytdMap.get(a.id) ?? { gross: 0, tax: 0 };
@@ -166,7 +176,6 @@ export default async function DashboardPage() {
     if (result.status === "refund") totalTaxRefund += Math.abs(result.taxAdditional);
   }
 
-  // Recent commissions với tên affiliate
   const affiliateNameMap = new Map(affiliates.map((a) => [a.id, a.full_name]));
   const recentCommissions = (recentCommissionsRes.data ?? []).map((c) => ({
     id: c.id,
@@ -217,8 +226,8 @@ export default async function DashboardPage() {
         />
       </div>
 
-      {/* HÀNG 2: 6 KPI nhỏ */}
-      <div className="grid gap-3 grid-cols-2 md:grid-cols-3 lg:grid-cols-6">
+      {/* HÀNG 2: 7 KPI nhỏ */}
+      <div className="grid gap-3 grid-cols-2 md:grid-cols-3 lg:grid-cols-7">
         <SmallKpiCard
           label="Doanh thu tháng (Gross)"
           value={formatCurrency(thisMonthGross)}
@@ -264,11 +273,22 @@ export default async function DashboardPage() {
           icon={Building2}
           href="/bank-book"
         />
+        {/* ✨ NEW: Chi phí Facebook Ads */}
+        <SmallKpiCard
+          label="Chi phí Facebook Ads"
+          value={formatCurrency(adsExpense)}
+          subtitle={
+            adsData.category_count === 0
+              ? "Chưa có khoản mục Ads"
+              : `${adsData.transaction_count} giao dịch tháng này`
+          }
+          icon={Megaphone}
+          variant={adsExpense > 0 ? "warning" : "default"}
+        />
       </div>
 
       {/* Layout 2 cột */}
       <div className="grid gap-6 lg:grid-cols-3">
-        {/* Bên trái: Chart 12 tháng + Activity feed */}
         <div className="lg:col-span-2 space-y-6">
           <Card>
             <CardHeader>
@@ -295,7 +315,6 @@ export default async function DashboardPage() {
           </Card>
         </div>
 
-        {/* Bên phải: Alerts + Top */}
         <div className="space-y-6">
           <DashboardAlerts alerts={alerts} />
 
@@ -338,9 +357,6 @@ export default async function DashboardPage() {
   );
 }
 
-// ============================================================================
-// BIG KPI CARD (hàng 1 - 3 ô lớn)
-// ============================================================================
 function BigKpiCard({
   label,
   value,
@@ -411,9 +427,6 @@ function BigKpiCard({
   return content;
 }
 
-// ============================================================================
-// SMALL KPI CARD (hàng 2 - 6 ô nhỏ)
-// ============================================================================
 function SmallKpiCard({
   label,
   value,
