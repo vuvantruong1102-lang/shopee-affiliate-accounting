@@ -5,7 +5,6 @@ import { usePathname } from "next/navigation";
 import {
   LayoutDashboard,
   Users,
-  Pencil,
   Wallet,
   Building2,
   Receipt,
@@ -24,7 +23,6 @@ const NAV_GROUPS = [
     items: [
       { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
       { href: "/affiliates", label: "Tài khoản affiliate", icon: Users },
-      { href: "/data-entry", label: "Nhập liệu", icon: Pencil },
       { href: "/cash-book", label: "Sổ quỹ tiền mặt", icon: Wallet },
       { href: "/bank-book", label: "Sổ ngân hàng", icon: Building2 },
       { href: "/tax", label: "Thuế TNCN", icon: Receipt },
@@ -48,7 +46,7 @@ interface Props {
   version?: string;
 }
 
-export function Sidebar({ appName = "Shopee Acc.", version = "v1.2" }: Props) {
+export function Sidebar({ appName = "Shopee Acc.", version = "v1.3" }: Props) {
   const pathname = usePathname();
 
   return (
@@ -64,7 +62,6 @@ export function Sidebar({ appName = "Shopee Acc.", version = "v1.2" }: Props) {
           </div>
         </div>
       </div>
-
       <nav className="flex-1 p-3 space-y-5 overflow-y-auto scrollbar-thin">
         {NAV_GROUPS.map((group) => (
           <div key={group.title}>
@@ -98,7 +95,6 @@ export function Sidebar({ appName = "Shopee Acc.", version = "v1.2" }: Props) {
           </div>
         ))}
       </nav>
-
       <div className="p-3 text-[10px] text-muted-foreground text-center border-t border-border">
         © {new Date().getFullYear()} Internal Tool
       </div>
