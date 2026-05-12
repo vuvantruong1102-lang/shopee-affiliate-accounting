@@ -2,126 +2,145 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
-import { redirect } from "next/navigation";
 
-export interface PaymentDayInput {
-  earned_date: string;
-  gross_amount: number;
-}
-
-export interface ShopeePaymentInput {
+export interface ConfirmPaymentInput {
   account_id: string;
   payment_code: string;
-  reconcile_date: string;
+  payment_date: string; // YYYY-MM-DD
+  total_gross: number;
+  total_tax: number;
+  total_net: number;
+  is_received: boolean;
+  notes?: string;
+}
+
+export async function confirmShopeePayment(input: ConfirmPaymentInput) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Bạn cần đăng nhập" };
+
+  const { data, error } = await supabase
+    .rpc("confirm_shopee_payment", {
+      p_account_id: input.account_id,
+      p_payment_code: input.payment_code,
+      p_payment_date: input.payment_date,
+      p_total_gross: input.total_gross,
+      p_total_tax: input.total_tax,
+      p_total_net: input.total_net,
+      p_is_received: input.is_received,
+      p_notes: input.notes ?? null,
+    })
+    .single();
+
+  if (error) return { error: error.message };
+
+  revalidatePath("/reconciliation");
+  revalidatePath("/affiliates");
+  revalidatePath(`/affiliates/${input.account_id}`);
+  revalidatePath("/dashboard");
+  revalidatePath("/tax");
+  return { data };
+}
+
+export interface UpdatePaymentInput {
+  payment_id: string;
+  payment_code: string;
   payment_date: string;
   total_gross: number;
   total_tax: number;
   total_net: number;
-  bank_name?: string;
-  bank_account_last4?: string;
-  is_received: boolean;
   notes?: string;
-  days: PaymentDayInput[];
+  account_id?: string; // để revalidate
 }
 
-export async function createShopeePayment(input: ShopeePaymentInput) {
+export async function updateShopeePayment(input: UpdatePaymentInput) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Bạn cần đăng nhập" };
 
-  // Validate: tổng ngày = tổng gross
-  const sumOfDays = input.days.reduce((s, d) => s + d.gross_amount, 0);
-  if (Math.abs(sumOfDays - input.total_gross) > 1) {
-    return {
-      error: `Tổng các ngày (${sumOfDays.toLocaleString("vi-VN")}đ) không khớp với tổng gross (${input.total_gross.toLocaleString("vi-VN")}đ)`,
-    };
-  }
-
-  // Validate: gross - tax = net (cho phép sai số 1đ do làm tròn)
-  if (Math.abs(input.total_gross - input.total_tax - input.total_net) > 1) {
-    return {
-      error: `Gross - Tax phải bằng Net (chênh ${Math.abs(input.total_gross - input.total_tax - input.total_net).toLocaleString("vi-VN")}đ)`,
-    };
-  }
-
-  // 1. Insert đợt thanh toán
-  const { data: payment, error: paymentError } = await supabase
-    .from("shopee_payments")
-    .insert({
-      account_id: input.account_id,
-      payment_code: input.payment_code,
-      reconcile_date: input.reconcile_date,
-      payment_date: input.payment_date,
-      total_gross: input.total_gross,
-      total_tax: input.total_tax,
-      total_net: input.total_net,
-      bank_name: input.bank_name || null,
-      bank_account_last4: input.bank_account_last4 || null,
-      is_received: input.is_received,
-      notes: input.notes || null,
-      created_by: user.id,
-    })
-    .select()
-    .single();
-
-  if (paymentError) {
-    if (paymentError.code === "23505") {
-      return { error: "Mã thanh toán này đã tồn tại cho affiliate này" };
-    }
-    return { error: paymentError.message };
-  }
-
-  // 2. Insert chi tiết các ngày
-  const daysData = input.days.map((d) => ({
-    payment_id: payment.id,
-    earned_date: d.earned_date,
-    gross_amount: d.gross_amount,
-  }));
-
-  const { error: daysError } = await supabase
-    .from("shopee_payment_days")
-    .insert(daysData);
-
-  if (daysError) {
-    // Rollback: xóa payment vừa tạo
-    await supabase.from("shopee_payments").delete().eq("id", payment.id);
-    return { error: daysError.message };
-  }
-
-  revalidatePath("/reconciliation");
-  revalidatePath("/dashboard");
-  return { data: payment };
-}
-
-export async function toggleReceivedStatus(paymentId: string, isReceived: boolean) {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return { error: "Bạn cần đăng nhập" };
-
-  const { error } = await supabase
-    .from("shopee_payments")
-    .update({ is_received: isReceived })
-    .eq("id", paymentId);
+  const { error } = await supabase.rpc("update_shopee_payment", {
+    p_payment_id: input.payment_id,
+    p_payment_code: input.payment_code,
+    p_payment_date: input.payment_date,
+    p_total_gross: input.total_gross,
+    p_total_tax: input.total_tax,
+    p_total_net: input.total_net,
+    p_notes: input.notes ?? null,
+  });
 
   if (error) return { error: error.message };
 
   revalidatePath("/reconciliation");
-  revalidatePath(`/reconciliation/${paymentId}`);
+  revalidatePath("/affiliates");
+  if (input.account_id) revalidatePath(`/affiliates/${input.account_id}`);
+  revalidatePath("/dashboard");
   return { success: true };
 }
 
-export async function deleteShopeePayment(paymentId: string) {
+export async function markPaymentReceived(payment_id: string, received_date?: string) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Bạn cần đăng nhập" };
 
-  const { error } = await supabase
-    .from("shopee_payments")
-    .update({ is_deleted: true })
-    .eq("id", paymentId);
+  const { error } = await supabase.rpc("mark_shopee_payment_received", {
+    p_payment_id: payment_id,
+    p_received_date: received_date ?? null,
+  });
 
   if (error) return { error: error.message };
 
   revalidatePath("/reconciliation");
-  redirect("/reconciliation");
+  revalidatePath("/affiliates");
+  revalidatePath("/dashboard");
+  return { success: true };
+}
+
+export async function unmarkPaymentReceived(payment_id: string) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Bạn cần đăng nhập" };
+
+  const { error } = await supabase.rpc("unmark_shopee_payment_received", {
+    p_payment_id: payment_id,
+  });
+
+  if (error) return { error: error.message };
+
+  revalidatePath("/reconciliation");
+  revalidatePath("/affiliates");
+  revalidatePath("/dashboard");
+  return { success: true };
+}
+
+export async function deleteShopeePayment(payment_id: string) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Bạn cần đăng nhập" };
+
+  const { error } = await supabase.rpc("delete_shopee_payment", {
+    p_payment_id: payment_id,
+  });
+
+  if (error) return { error: error.message };
+
+  revalidatePath("/reconciliation");
+  revalidatePath("/affiliates");
+  revalidatePath("/dashboard");
+  revalidatePath("/tax");
+  return { success: true };
+}
+
+export async function checkDuplicatePaymentCode(
+  payment_code: string,
+  exclude_id?: string,
+) {
+  if (!payment_code.trim()) return { duplicates: [] };
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("check_duplicate_payment_code", {
+    p_payment_code: payment_code,
+    p_exclude_id: exclude_id ?? null,
+  });
+
+  if (error) return { duplicates: [] };
+  return { duplicates: data ?? [] };
 }
