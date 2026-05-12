@@ -16,23 +16,16 @@ interface BankAccount {
   account_number: string;
 }
 
-interface Affiliate {
-  id: string;
-  full_name: string;
-}
-
 interface Props {
   open: boolean;
   onClose: () => void;
   bankAccounts: BankAccount[];
-  affiliates: Affiliate[];
 }
 
 type DepositType = "from_affiliate_cash" | "other";
 
-export function BankDepositModal({ open, onClose, bankAccounts, affiliates }: Props) {
+export function BankDepositModal({ open, onClose, bankAccounts }: Props) {
   const [depositType, setDepositType] = useState<DepositType>("from_affiliate_cash");
-  const [affiliateId, setAffiliateId] = useState("");
   const [bankAccountId, setBankAccountId] = useState(bankAccounts[0]?.id ?? "");
   const [amount, setAmount] = useState(0);
   const [transDate, setTransDate] = useState(new Date().toISOString().split("T")[0]);
@@ -49,7 +42,6 @@ export function BankDepositModal({ open, onClose, bankAccounts, affiliates }: Pr
 
   function reset() {
     setDepositType("from_affiliate_cash");
-    setAffiliateId("");
     setAmount(0);
     setDescription("");
     setTransDate(new Date().toISOString().split("T")[0]);
@@ -66,10 +58,6 @@ export function BankDepositModal({ open, onClose, bankAccounts, affiliates }: Pr
       toast.error("Chọn tài khoản ngân hàng");
       return;
     }
-    if (depositType === "from_affiliate_cash" && !affiliateId) {
-      toast.error("Chọn affiliate");
-      return;
-    }
     if (depositType === "other" && !description.trim()) {
       toast.error("Nhập diễn giải");
       return;
@@ -78,9 +66,9 @@ export function BankDepositModal({ open, onClose, bankAccounts, affiliates }: Pr
     setLoading(true);
     try {
       if (depositType === "from_affiliate_cash") {
-        // Atomic: tạo bank income + cash expense
+        // Atomic: bank income + cash expense (affiliate_id = null vì gom nhiều người)
         const result = await submitBankFromCash({
-          affiliate_id: affiliateId,
+          affiliate_id: null,
           bank_account_id: bankAccountId,
           amount,
           trans_date: transDate,
@@ -93,7 +81,6 @@ export function BankDepositModal({ open, onClose, bankAccounts, affiliates }: Pr
         }
         toast.success("Đã nộp tiền vào ngân hàng + giảm tiền mặt tương ứng");
       } else {
-        // Chỉ ghi bank income
         const result = await createBankTransaction({
           bank_account_id: bankAccountId,
           trans_type: "income",
@@ -162,7 +149,7 @@ export function BankDepositModal({ open, onClose, bankAccounts, affiliates }: Pr
                     Nộp tiền Affiliate từ TK tiền mặt
                   </div>
                   <p className="text-xs text-muted-foreground mt-0.5">
-                    Tự tạo bút toán giảm tiền mặt tương ứng
+                    Tự tạo bút toán giảm tiền mặt tương ứng. Có thể gom tiền nhiều affiliate vào 1 lần nộp.
                   </p>
                 </div>
               </label>
@@ -194,28 +181,6 @@ export function BankDepositModal({ open, onClose, bankAccounts, affiliates }: Pr
               </label>
             </div>
           </div>
-
-          {/* Chọn affiliate (nếu loại "từ TK tiền mặt") */}
-          {depositType === "from_affiliate_cash" && (
-            <div>
-              <Label className="mb-1.5 block text-sm font-medium">
-                Chọn affiliate <span className="text-destructive">*</span>
-              </Label>
-              <select
-                value={affiliateId}
-                onChange={(e) => setAffiliateId(e.target.value)}
-                className="h-10 w-full px-3 rounded-md border border-input bg-background text-sm"
-                required
-              >
-                <option value="">-- Chọn affiliate --</option>
-                {affiliates.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.full_name}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
 
           <div>
             <Label className="mb-1.5 block text-sm font-medium">
@@ -276,7 +241,7 @@ export function BankDepositModal({ open, onClose, bankAccounts, affiliates }: Pr
               className="w-full px-3 py-2 rounded-md border border-input bg-background text-sm resize-none"
               placeholder={
                 depositType === "from_affiliate_cash"
-                  ? "Ghi chú (tùy chọn): vd ngày nộp thực tế..."
+                  ? "VD: Nộp gom tiền của Trần Văn An, Vũ Văn Trường ngày 12/05..."
                   : "VD: Vay vốn, hoàn tiền nhà cung cấp..."
               }
               required={depositType === "other"}

@@ -12,17 +12,11 @@ interface BankAccount {
   account_number: string;
 }
 
-interface Affiliate {
-  id: string;
-  full_name: string;
-}
-
 interface Props {
   bankAccounts: BankAccount[];
-  affiliates: Affiliate[];
 }
 
-export function BankBookActions({ bankAccounts, affiliates }: Props) {
+export function BankBookActions({ bankAccounts }: Props) {
   const [depositOpen, setDepositOpen] = useState(false);
   const [expenseOpen, setExpenseOpen] = useState(false);
 
@@ -43,7 +37,6 @@ export function BankBookActions({ bankAccounts, affiliates }: Props) {
         open={depositOpen}
         onClose={() => setDepositOpen(false)}
         bankAccounts={bankAccounts}
-        affiliates={affiliates}
       />
 
       <BankExpenseModal
