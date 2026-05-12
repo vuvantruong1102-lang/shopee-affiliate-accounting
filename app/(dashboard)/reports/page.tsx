@@ -1,7 +1,7 @@
 import { PageHeader } from "@/components/layout/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import Link from "next/link";
-import { TrendingUp, Users, Calculator, ArrowRight } from "lucide-react";
+import { TrendingUp, Users, Calculator, Wallet, ArrowRight } from "lucide-react";
 
 const REPORTS = [
   {
@@ -25,6 +25,13 @@ const REPORTS = [
     description: "Doanh thu - Chi phí = Lãi/Lỗ. Phân tích chi phí theo từng loại (Marketing, Lương...)",
     color: "bg-warning/10 text-warning",
   },
+  {
+    href: "/reports/assets",
+    icon: Wallet,
+    title: "Báo cáo Tổng tài sản",
+    description: "Tổng tài sản: tiền mặt + tiền ngân hàng + affiliate đang cầm + Shopee chưa chuyển",
+    color: "bg-info/10 text-info",
+  },
 ];
 
 export default function ReportsPage() {
@@ -34,7 +41,6 @@ export default function ReportsPage() {
         title="Báo cáo"
         description="Chọn loại báo cáo phù hợp với mục đích sử dụng"
       />
-
       <div className="grid gap-4">
         {REPORTS.map((r) => {
           const Icon = r.icon;
