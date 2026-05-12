@@ -20,7 +20,6 @@ export interface AffiliateFormData {
   shopee_affiliate_id?: string;
   has_personal_deduction: boolean;
   dependent_count: number;
-  // Lương từ công ty (cho người đứng tên đi làm có lương)
   has_company_salary: boolean;
   monthly_salary_gross: number;
   monthly_salary_tax_withheld: number;
@@ -29,11 +28,39 @@ export interface AffiliateFormData {
   notes?: string;
 }
 
-function cleanEmpty<T extends object>(obj: T): Partial<T> {
+/**
+ * cleanForCreate: dùng khi INSERT (tạo mới)
+ * - Bỏ field undefined và ""
+ * - Giữ lại field có giá trị thật sự (kể cả 0, false)
+ * 
+ * KHÔNG dùng cho update vì sẽ không cho phép xóa field về null.
+ */
+function cleanForCreate<T extends object>(obj: T): Partial<T> {
   const result: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(obj)) {
-    if (value === "" || value === undefined) continue;
+    if (value === undefined) continue;
+    if (value === "") continue;
     result[key] = value;
+  }
+  return result as Partial<T>;
+}
+
+/**
+ * cleanForUpdate: dùng khi UPDATE
+ * - Bỏ field undefined (không update)
+ * - Field "" được giữ → DB set thành "" hoặc null tùy logic
+ * - Cho phép xóa field về trống
+ */
+function cleanForUpdate<T extends object>(obj: T): Partial<T> {
+  const result: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(obj)) {
+    if (value === undefined) continue;
+    // Convert "" thành null cho các field optional (DB friendly)
+    if (value === "") {
+      result[key] = null;
+    } else {
+      result[key] = value;
+    }
   }
   return result as Partial<T>;
 }
@@ -41,13 +68,11 @@ function cleanEmpty<T extends object>(obj: T): Partial<T> {
 export async function createAffiliate(formData: AffiliateFormData) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
-
   if (!user) {
     return { error: "Bạn cần đăng nhập" };
   }
 
-  const cleaned = cleanEmpty(formData);
-
+  const cleaned = cleanForCreate(formData);
   const { data, error } = await supabase
     .from("affiliate_accounts")
     .insert({
@@ -58,6 +83,7 @@ export async function createAffiliate(formData: AffiliateFormData) {
     .single();
 
   if (error) {
+    console.error("[createAffiliate] error:", error);
     return { error: error.message };
   }
 
@@ -71,7 +97,15 @@ export async function updateAffiliate(
   formData: Partial<AffiliateFormData>,
 ) {
   const supabase = await createClient();
-  const cleaned = cleanEmpty(formData);
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) {
+    return { error: "Bạn cần đăng nhập" };
+  }
+
+  const cleaned = cleanForUpdate(formData);
+
+  // Log để dễ debug nếu vẫn lỗi
+  console.log("[updateAffiliate] id:", id, "payload:", cleaned);
 
   const { data, error } = await supabase
     .from("affiliate_accounts")
@@ -81,6 +115,7 @@ export async function updateAffiliate(
     .single();
 
   if (error) {
+    console.error("[updateAffiliate] error:", error);
     return { error: error.message };
   }
 
@@ -92,7 +127,6 @@ export async function updateAffiliate(
 
 export async function deleteAffiliate(id: string) {
   const supabase = await createClient();
-
   const { error } = await supabase
     .from("affiliate_accounts")
     .update({ is_deleted: true, status: "closed" })
@@ -112,7 +146,6 @@ export async function getAffiliateSummary(accountId: string) {
   const { data, error } = await supabase
     .rpc("get_affiliate_summary", { p_account_id: accountId })
     .single();
-
   if (error) return null;
   return data;
 }
