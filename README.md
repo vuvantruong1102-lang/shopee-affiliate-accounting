@@ -1,78 +1,85 @@
-# Phase 8 Fix 2 — Sửa lại UI Calculator
+# Phase 8 Fix 3 — Sửa công thức lợi nhuận + gọn UI
 
-## 🎯 Thay đổi
+## 🐛 Bug đã sửa
 
-### 1. Form "Nhập thông số" — mỗi mục 1 hàng
+### Công thức lợi nhuận sai
 
-Trước: 2 cột (HH Gross + Lương cùng hàng)
-Sau: **Mỗi input 1 hàng riêng**, dễ nhìn hơn
-
-| Hàng | Trường |
-|---|---|
-| 1 | Hoa hồng Gross |
-| 2 | Lương |
-| 3 | Giảm trừ gia cảnh (+ quick buttons) |
-| 4 | Chi phí Facebook Ads |
-
-**Font số đậm hơn**: `text-lg font-semibold tabular-nums` → số tiền dễ đọc
-
-### 2. Giảm trừ — 1 ô tự điền
-
-❌ Bỏ: checkbox "Có giảm trừ bản thân" + input "Số NPT"
-✅ Mới: **1 ô CurrencyInput** để người dùng tự nhập số tiền
-
-**Quick preset buttons** bên dưới (chọn nhanh):
-- Bản thân: 15,500,000đ
-- BT + 1 NPT: 21,700,000đ
-- BT + 2 NPT: 27,900,000đ
-- BT + 3 NPT: 34,100,000đ
-
-Click button → tự fill vào ô. Hoặc nhập số tay tùy ý.
-
-### 3. Kết quả ước tính — thêm % và giảm font
-
-Layout dạng **MainRow** (mỗi hạng mục 1 hàng có icon + label + %, + số):
-
+**Trước (sai)**:
 ```
-📈 Hoa hồng Gross              100.0%   30.000.000đ
-💼 Lương                         0.0%            0đ  (ẩn nếu = 0)
-➖ Giảm trừ                     51.7%  −15.500.000đ
-┌─ 🧾 Thuế phải nộp              2.5%      725.000đ ──┐
-│    Thuế tạm nộp (KT 10%)      10.0%    3.000.000đ  │
-│    Được hoàn lại               7.6%   +2.275.000đ  │
-└──────────────────────────────────────────────────────┘
-📢 Chi phí Facebook Ads         16.7%   −5.000.000đ
-═══════════════════════════════════════════════════
-✨ Lợi nhuận                                  +XX,XXX,XXX đ
-                                              % trên HH: 67%
+Lợi nhuận = HH Net + Lương − Ads − Thuế còn phải nộp thêm
+         = (HH Gross − 10%) + Lương − Ads − Thuế còn phải nộp thêm
 ```
 
-- Font giảm từ `text-base/text-xl` → `text-sm/text-base`
-- Mỗi hàng có **% trên HH Gross** ở cột giữa (làm cơ sở so sánh)
-- Padding compact hơn
-
-### 4. Layout 2 cột + 1 hàng dưới
-
+**Sau (đúng)**:
 ```
-┌──────────────────────┬──────────────────────┐
-│ 📝 Nhập thông số      │ ✨ Kết quả ước tính   │
-│   - HH Gross         │   - HH Gross + %     │
-│   - Lương            │   - Lương + %        │
-│   - Giảm trừ         │   - Giảm trừ + %     │
-│   - Ads              │   - Thuế phải nộp +% │
-│                      │   - Chi phí Ads + %  │
-│                      │   ─────────          │
-│                      │   ✨ LỢI NHUẬN + %    │
-└──────────────────────┴──────────────────────┘
-┌──────────────────────────────────────────────┐
-│ 💰 Thuế theo từng bậc (full width)            │
-│ Bậc | Khoảng TN | % | TN/bậc | Thuế | Tỷ trọng│
-│ ...                                          │
-└──────────────────────────────────────────────┘
+Lợi nhuận = HH Gross − Tổng thuế phải nộp − Chi phí Ads
 ```
 
-- Form bên trái, Kết quả bên phải (2 cột cân đối)
-- Thuế theo bậc **xuống dưới full-width** (bảng đầy đủ cột với progress bar)
+**Tại sao**:
+- Lương là **thu nhập cá nhân riêng** của người đứng tên affiliate (từ công ty khác), không thuộc lợi nhuận của bạn
+- Lương chỉ là **tham số** để tính chính xác mức thuế lũy tiến (vì thuế tính trên tổng thu nhập)
+- "Tổng thuế phải nộp" đã bao gồm cả thuế tạm + thuế phải nộp thêm → không cần trừ riêng
+
+## 🎨 UI thay đổi
+
+### Bảng "Kết quả ước tính" gọn lại — chỉ 4 mục
+
+❌ Bỏ: Lương, Giảm trừ (đã hiển thị trong form rồi, không cần lặp)
+✅ Giữ:
+1. **Hoa hồng Gross** (card lớn primary)
+2. **Thuế phải nộp** (card lớn warning + 2 sub-items: tạm nộp / nộp thêm)
+3. **Chi phí Facebook Ads** (card lớn danger)
+4. **Lợi nhuận** (card nổi bật nhất)
+
+Bên dưới có dòng nhỏ ghi công thức: "Lợi nhuận = HH Gross − Tổng thuế phải nộp − Chi phí Ads"
+
+### Bảng "Thuế theo từng bậc" — thiết kế lại
+
+**Trước**: Bảng truyền thống với cột Bậc / Khoảng / Thuế suất / TN / Thuế / Tỷ trọng — cột "Bậc" quá hẹp, chữ nhảy dòng.
+
+**Sau**: Mỗi bậc là **1 hàng grid 12 cột cân đối**:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ [1] Bậc 1            5%      TN trong bậc:    Thuế:    Tỷ trọng│
+│     Đến 10tr                  10,000,000đ  500,000đ   ███░ 53%│
+├─────────────────────────────────────────────────────────────────┤
+│ [2] Bậc 2           10%      TN trong bậc:    Thuế:    Tỷ trọng│
+│     10-30tr                    4,500,000đ  450,000đ   █░░░ 47%│
+└─────────────────────────────────────────────────────────────────┘
+```
+
+- **Số bậc to (badge tròn)** ở đầu hàng
+- **Mỗi cột có label nhỏ** ở trên ("SUẤT", "TN TRONG BẬC", "THUẾ", "TỶ TRỌNG") → dễ đọc
+- **Khoảng thu nhập** hiển thị dưới "Bậc N" → không bị nhảy dòng
+- **Progress bar tỷ trọng** to hơn, có % bên cạnh
+- **Responsive**: ở mobile (< sm) tự xếp lại thành nhiều hàng
+
+### 4 stat tổng ở đầu bảng bậc thuế
+
+```
+┌─────────────┬─────────────┬─────────────┬─────────────┐
+│ TNTT         │ Tổng thuế   │ Đã KT 10%   │ Còn phải nộp│
+│ 14,500,000đ  │ 950,000đ    │ −3,000,000đ │ 0đ          │
+└─────────────┴─────────────┴─────────────┴─────────────┘
+```
+
+4 card vuông gọn, đồng đều, không bị tràn.
+
+## ✅ Verify công thức
+
+Test case 1: HH 30tr, Lương 0, Ads 5tr, Giảm trừ 15.5tr
+- Thuế tạm: 3.000.000đ
+- Thuế phải nộp: 950.000đ
+- Được hoàn: 2.050.000đ
+- **Lợi nhuận** = 30.000.000 − 950.000 − 5.000.000 = **24.050.000đ** (80.2% / HH)
+
+Test case 2: HH 100tr, Lương 20tr (cộng dồn để tính thuế), Ads 10tr, Giảm trừ 15.5tr
+- TNTT = 100tr + 20tr − 15.5tr = 104.5tr
+- Thuế phải nộp (5 bậc): 22.075.000đ
+- **Lợi nhuận** = 100.000.000 − 22.075.000 − 10.000.000 = **67.925.000đ**
+
+→ Lương 20tr không vào lợi nhuận, nhưng làm tăng thuế phải nộp.
 
 ## 📋 Triển khai
 
@@ -84,36 +91,29 @@ components/calculator/calculator-form.tsx        ← GHI ĐÈ
 
 ### Bước 2: Commit + Push
 
-Message: `Phase 8 Fix 2: Calculator UI redesign`
+Message: `Phase 8 Fix 3: Correct profit formula + redesign tax bracket table`
 
 ### Bước 3: Test
 
 1. Vào `/calculator` → kiểm tra:
-   - Form mỗi input 1 hàng riêng
-   - Số tiền nhập vào hiển thị **đậm và to**
-2. Trường Giảm trừ:
-   - Mặc định: 15,500,000đ (Bản thân)
-   - Click "BT + 1 NPT" → tự đổi thành 21,700,000đ
-   - Có thể nhập tay 20,000,000đ (giá trị tùy ý)
-3. Cột kết quả bên phải:
-   - Mỗi hàng có % so với HH Gross
-   - Font nhỏ hơn version cũ
-   - Lợi nhuận nổi bật nhất ở cuối
-4. Cuộn xuống → bảng "Thuế theo bậc" full-width với progress bar
+   - Bảng "Kết quả ước tính" chỉ còn 4 mục (HH Gross / Thuế / Ads / Lợi nhuận)
+   - Không còn dòng Lương, không còn dòng Giảm trừ
+   - Có ghi chú công thức nhỏ ở cuối
+2. Thử nhập **Lương = 20.000.000đ**:
+   - Tổng thuế phải nộp **TĂNG**
+   - Lợi nhuận **GIẢM** (vì thuế tăng)
+   - Nhưng lương KHÔNG cộng vào lợi nhuận
+3. Cuộn xuống xem **bảng thuế theo bậc**:
+   - 4 stat tổng ở đầu (TNTT / Tổng thuế / Đã KT / Còn phải nộp)
+   - Mỗi bậc là 1 hàng đẹp, có badge số bậc to + khoảng + suất + TN + thuế + tỷ trọng
+   - Không còn chữ nhảy dòng lung tung
 
-## 💡 Lưu ý
+## 💡 Phân biệt rõ vai trò "Lương"
 
-### Quick buttons "Giảm trừ"
+| Vai trò | Có | Không |
+|---|---|---|
+| Vào lợi nhuận | ❌ | ✅ |
+| Vào TNCT (tính thuế) | ✅ | ❌ |
+| Vào TNTT (tính thuế) | ✅ | ❌ |
 
-Mặc định preset Bản thân được active (highlight). Khi nhập tay số khác → không button nào active.
-
-### % được tính trên HH Gross
-
-Đây là cách phổ biến để xem tỷ trọng. Ví dụ:
-- Giảm trừ 15.5tr / HH 30tr = 51.7%
-- Chi phí Ads 5tr / HH 30tr = 16.7%
-- Lợi nhuận sau cùng / HH = mức % thực bạn giữ lại
-
-### Ẩn dòng "Lương" khi = 0
-
-Để giao diện gọn, hàng Lương chỉ hiện khi > 0.
+Lương là thu nhập cá nhân của affiliate (họ làm việc cho công ty khác), không phải doanh thu của bạn. Bạn chỉ cần lương để tính chính xác mức thuế lũy tiến áp dụng cho affiliate này.
