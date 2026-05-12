@@ -1,118 +1,77 @@
-# Phase 6 — Audit Log + Dashboard cải tiến + Backup
+# Phase 6 Fix — Sửa layout Dashboard + Bug format số tiền
 
-## 🎯 Tính năng
+## 🐛 Vấn đề đã sửa
 
-### 1. Audit Log (Lịch sử thay đổi)
-- Tự động ghi lại mọi hành động sửa/xóa giao dịch
-- Lưu: ai làm, lúc nào, sửa cái gì, từ giá trị cũ → mới
-- Trang `/audit-log` với filter theo bảng + hành động
-- **Immutable**: không ai có thể sửa/xóa audit log (RLS chặn)
+1. **Bug `###,###,###đ` trong alerts**: Postgres `to_char(amount, 'FM999,999,999')` không hỗ trợ dấu phẩy nghìn theo cú pháp này → format ở client TypeScript (`formatCurrency`) cho chính xác.
 
-### 2. Dashboard cải tiến (`/dashboard`)
-- **Banner cảnh báo** ở đầu: hiển thị các vấn đề cần chú ý:
-  - 🔴 Affiliate đang cầm tiền > 50tr chưa nộp (severity: high)
-  - 🟠 Hoa hồng pending > 14 ngày chưa nhận (severity: high)
-  - 🟡 Đợt Shopee chưa đánh dấu nhận sau 5 ngày (severity: medium)
-- **4 KPI cards** clickable: Số dư tiền mặt, Số dư NH, DT tháng, Shopee chưa chuyển
-- **Biểu đồ 12 tháng gần đây**: doanh thu gross theo tháng
-- **Top 5 affiliate** tháng này (có progress bar)
-- 3 nút quick link: Audit log, Backup, Báo cáo
+2. **Bỏ alert "Hoa hồng chậm về"** (không còn hợp lý sau khi có Phase 4 Đối soát Shopee — vì đã có alert "đợt Shopee chưa nhận" thay thế).
 
-### 3. Backup dữ liệu (`/backup`)
-- Hiển thị stats tổng quan
-- 2 nút download:
-  - **CSV**: gộp tất cả bảng vào 1 file (cho người dùng đọc trên Excel)
-  - **JSON**: dữ liệu thô, đầy đủ (cho mục đích khôi phục)
-- Có khuyến nghị về tần suất backup
+3. **Bỏ banner "Hoa hồng pending > 14 ngày"** vì đã có alert đợt Shopee chưa nhận từ Phase 4.
 
-## 📋 Các bước triển khai
-
-### Bước 1: Chạy SQL migration
-
-Vào Supabase SQL Editor → paste toàn bộ `supabase/migrations/20260513000001_phase6_audit_dashboard.sql` → Run.
-
-Migration tạo:
-- Bảng `audit_log` + RLS
-- RPC `log_audit`, `get_dashboard_alerts`, `get_monthly_revenue_trend`, `get_top_affiliates`
-
-### Bước 2: Upload 11 file code
+## 🎨 Layout mới
 
 ```
-types/audit.ts                                       [FILE MỚI]
-lib/audit-log.ts                                     [FILE MỚI]
-app/(dashboard)/cash-book/actions.ts                 [GHI ĐÈ - thêm audit log]
-app/(dashboard)/dashboard/page.tsx                   [GHI ĐÈ - dashboard mới]
-app/(dashboard)/audit-log/page.tsx                   [FILE MỚI]
-app/(dashboard)/backup/page.tsx                      [FILE MỚI]
-components/layout/sidebar.tsx                        [GHI ĐÈ - thêm 2 link mới]
-components/dashboard/dashboard-alerts.tsx            [FILE MỚI]
-components/dashboard/revenue-trend-chart.tsx         [FILE MỚI]
-components/dashboard/top-affiliates-list.tsx         [FILE MỚI]
-components/audit/audit-log-list.tsx                  [FILE MỚI]
-components/backup/backup-client.tsx                  [FILE MỚI]
+┌──────────────────────────────────────────────────────────────┐
+│ 6 KPI Cards (TM, NH, DT tháng, Shopee chưa chuyển,           │
+│              Thuế đã nộp, Thuế cần nộp thêm)                  │
+├────────────────────────────────────┬─────────────────────────┤
+│                                    │  ⚠️ Cảnh báo (sidebar)  │
+│   📊 Chart 12 tháng                 │  - undeposited          │
+│   (chiếm 2 cột, lg:col-span-2)     │  - unreconciled         │
+│                                    │                          │
+│                                    ├─────────────────────────┤
+│                                    │  🏆 Top affiliate       │
+│                                    │     tháng này           │
+└────────────────────────────────────┴─────────────────────────┘
 ```
 
-⚠️ Đặt file đúng vị trí, không tạo `lib/components/...`
+## ✨ Tính năng mới
 
-### Bước 3: Commit & Push
+### 2 KPI thuế tổng
 
-Message: `Phase 6: Audit log + Dashboard alerts + Backup`
+- **Thuế đã nộp**: Tổng thuế đã khấu trừ YTD của tất cả affiliate (Shopee KT 10% + thuế lương công ty nếu có)
+- **Thuế cần nộp thêm**: Tổng `taxAdditional > 0` của tất cả affiliate khi quyết toán
+  - Subtitle hiện thêm "Hoàn X" nếu có affiliate được hoàn
 
-### Bước 4: Test theo thứ tự
+Logic tính: sử dụng lại `calculateYtdAdditionalTax` (Phase 5) — tự cộng dồn cho tất cả affiliate.
 
-**Test 1 - Audit log**:
-1. Vào Sổ tiền mặt → sửa 1 giao dịch (ví dụ đổi số tiền)
-2. Vào `/audit-log` → kỳ vọng thấy 1 dòng mới ghi lại thay đổi
-3. Filter theo bảng/hành động → hoạt động
+## 📋 Triển khai
 
-**Test 2 - Dashboard alerts**:
-1. Vào `/dashboard`
-2. Nếu có affiliate đang cầm tiền (received > deposited) → thấy alert
-3. Click vào alert → đi tới trang affiliate đó
+### Bước 1: Chạy SQL
 
-**Test 3 - Chart + Top**:
-1. Trên dashboard, biểu đồ 12 tháng hiển thị (nếu có dữ liệu)
-2. Top affiliates hiển thị 5 người có doanh thu cao nhất tháng
+Vào Supabase SQL Editor → paste `supabase/migrations/20260513000002_fix_alerts_and_tax_totals.sql` → Run.
 
-**Test 4 - Backup**:
-1. Vào `/backup` → thấy stats
-2. Bấm **Tải CSV** → file mở được bằng Excel
-3. Bấm **Tải JSON** → file JSON đầy đủ data
+Migration này:
+- Fix lại `get_dashboard_alerts` (bỏ bug format, bỏ 1 alert không cần)
+- Thêm RPC `get_total_tax_ytd` (tuy không dùng trực tiếp nhưng có sẵn để mở rộng)
 
-## 💡 Lưu ý quan trọng
+### Bước 2: Upload 2 file code
 
-### Về Audit log
+```
+app/(dashboard)/dashboard/page.tsx              ← GHI ĐÈ
+components/dashboard/dashboard-alerts.tsx       ← GHI ĐÈ
+```
 
-- **Chỉ log update/delete** cho cash_transactions và bank_transactions ở phiên bản này. Có thể mở rộng cho commissions, affiliates ở phase sau nếu cần.
-- **Không log create** (vì create không gây mất dữ liệu, ít quan trọng hơn).
-- **Audit log không bao giờ bị xóa** → có thể tốn dung lượng sau vài năm. Cân nhắc thêm cron job xóa log > 2 năm trong tương lai.
+### Bước 3: Commit + Push
 
-### Về Backup
+Message: `Phase 6 Fix: Dashboard layout + alert format bug`
 
-- **CSV gộp**: tất cả bảng trong 1 file, có header phân cách. Mở bằng Excel xem được nhưng không phải multi-sheet thực sự.
-- **JSON**: đầy đủ nhất, dùng để khôi phục dữ liệu nếu cần. Bạn có thể parse JSON bằng Python/Node để import lại vào DB.
-- **Khuyến nghị**: tải backup **đầu mỗi tháng**, lưu vào Google Drive với tên `backup-YYYY-MM-DD.json`.
+### Bước 4: Test sau deploy
 
-### Về Dashboard alerts
+1. **Bug số tiền**: Vào `/dashboard` → cảnh báo phải hiển thị "Trần Văn An đang cầm 70.000.000đ chưa nộp" (không còn `###,###,###`)
 
-- **Alerts tự cập nhật** khi vào trang (server-side render)
-- Nếu không có alerts → banner tự ẩn
-- Có thể expand/collapse banner để gọn
+2. **6 KPI ở đầu**: Hiển thị đầy đủ 6 ô, responsive (xếp 2 cột ở mobile, 3 ở tablet, 6 ở desktop)
 
-## 🐛 Troubleshooting
+3. **Layout 2 cột**:
+   - Bên trái rộng hơn: chart 12 tháng
+   - Bên phải: trên là Cảnh báo, dưới là Top 5 affiliate
 
-**Lỗi "function get_dashboard_alerts does not exist"?**
-→ Chạy lại SQL migration ở Bước 1.
+4. **Thuế tổng**:
+   - Vào trang Thuế TNCN → ghi nhớ con số "Tổng phải nộp thêm" và "Tổng được hoàn"
+   - So sánh với KPI ở Dashboard → phải khớp
 
-**Trang `/dashboard` báo lỗi khi load?**
-→ Có thể do dữ liệu cũ chưa có `account_id` trong bank_transactions. Đã chạy migration Phase 5 Fix chưa?
+## 💡 Lưu ý
 
-**Audit log không hiện gì sau khi sửa giao dịch?**
-→ Kiểm tra Supabase: bảng `audit_log` có dòng mới không? Nếu không → có thể RLS policy chưa đúng. Chạy lại migration.
-
-## 🔮 Có thể làm tiếp ở Phase 7
-
-- Báo cáo tháng/quý/năm chính thức (P&L, theo affiliate, theo khoản mục)
-- Quản lý người phụ thuộc chi tiết (cho quyết toán thuế)
-- Mobile responsive (nếu hay dùng điện thoại)
-- Multi-year filter (xem dữ liệu năm trước)
+- **Responsive**: Ở mobile (< 1024px), 2 cột tự xếp dọc (chart trên, alerts + top ở dưới)
+- **Empty state cảnh báo**: Nếu không có cảnh báo → hiện "Mọi thứ ổn ✓" thay vì ẩn card
+- **Số tiền compact**: KPI dùng `text-base` (1rem) thay vì `text-xl` để fit 6 ô trên 1 hàng, vẫn dễ đọc
