@@ -1,114 +1,128 @@
-# Phase 10 Fix Final — 3 vấn đề
+# Phase 11 — Period filter + Activity log
 
-## 🐛 Vấn đề & Giải pháp
+## 🎯 2 thay đổi
 
-### Vấn đề 1: "Đang cầm = 0" sai
+### 1. Hoạt động gần đây — gộp commission + deposit
 
-**Nguyên nhân**: Trong DB đang có **70.000.000đ** `bank_transactions.income` link với affiliate Trần Văn An. Có thể là:
-- Giao dịch test cũ từ Phase 5 fix backfill
-- Giao dịch nộp tiền thật bạn đã nhập tay qua /data-entry trước Phase 10
-- Cộng cả 2
+Card mới ở cuối trang affiliate hiển thị log thống nhất:
+- 📈 Hoa hồng (icon xanh primary)
+- 💰 Nộp tiền vào công ty (icon xanh success)
 
-**Giải pháp**: 
-- Code đã sửa hiển thị "Vượt X đồng" thay vì "Đang cầm = 0" để rõ hơn
-- File `diagnostic-queries.sql` cho phép bạn check + xóa giao dịch test nếu cần
+Sắp xếp theo ngày, mới nhất trước. Mỗi item có:
+- Icon + tên hoạt động + badge trạng thái
+- Số tiền lớn bên phải
+- Ngày + chi tiết (TK ngân hàng, ghi chú...)
 
-### Vấn đề 2: TK công ty không hiện trong dropdown
+### 2. Period filter
 
-**Nguyên nhân**: Query của tôi filter `WHERE is_company = true`, nhưng:
-- Cột `is_company` có thể chưa tồn tại (Phase 1 không có)
-- Hoặc TK của bạn có `is_company = false`
+Filter bar ở đầu trang với 6 preset:
+- **Tất cả** (mặc định, không filter)
+- **Tuần này** (T2 - CN)
+- **Tháng này**
+- **Tháng trước**
+- **Năm này**
+- **Tùy chọn** (chọn from/to ngày)
 
-**Giải pháp**:
-1. SQL migration **thêm cột `is_company` với default = true** cho tất cả TK hiện có
-2. Bỏ filter `is_company` trong query → lấy tất cả TK không bị xóa
-3. Trang `/settings` mới: tự động set `is_company = true` khi tạo
+Filter **lọc cả**:
+- ✅ 4 KPI ở đầu trang
+- ✅ Bảng "Hoa hồng"
+- ✅ "Hoạt động gần đây"
 
-### Vấn đề 3: Không có nút xóa TK ngân hàng
+**KHÔNG lọc**:
+- ❌ Phần Thuế TNCN (luôn tính YTD cả năm để đúng luật)
+- ❌ Thông tin liên hệ
+- ❌ Modal "Nộp tiền" (vẫn dùng số tổng tất cả thời gian)
 
-**Giải pháp**: Trang `/settings` mới với:
-- ➕ Form thêm TK
-- ✏️ Sửa TK
-- 🗑 Xóa TK (RPC thông minh: xóa mềm nếu có giao dịch, xóa cứng nếu không)
-- Hiển thị số giao dịch của mỗi TK
+## 🎨 UI
+
+### Period filter ở đầu trang
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ 📊 Lọc theo kỳ: Đang xem: Tháng này                          │
+│                                                              │
+│ [Tất cả][Tuần này][Tháng này][Tháng trước][Năm này][Tùy chọn]│
+│                                                              │
+│ 📅 [01/05/2026] → [31/05/2026]   (hiện khi không phải All)  │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Activity log
+
+```
+┌─ Hoạt động gần đây ──────────────────────────────────────────┐
+│ X hoạt động · Tháng này · gồm hoa hồng + nộp tiền            │
+├──────────────────────────────────────────────────────────────┤
+│ 📈 Hoa hồng [Đợt Shopee] [Đã nhận]      +13.738.004đ        │
+│    📅 07/05/2026 · Nhận 11/05/2026       Gross 15tr − Thuế 1.5tr│
+├──────────────────────────────────────────────────────────────┤
+│ 💰 Nộp tiền vào công ty [Đã nộp]        +20.000.000đ        │
+│    📅 11/05/2026  🏦 Vietcombank · 942829421                 │
+├──────────────────────────────────────────────────────────────┤
+│ 📈 Hoa hồng [Đã nhận]                    +28.432.690đ        │
+│    📅 04/05/2026                         Gross 31tr − Thuế 3tr│
+└──────────────────────────────────────────────────────────────┘
+```
 
 ## 📋 Triển khai
 
-### Bước 1: Chạy SQL migration
-
-Vào Supabase SQL Editor → paste nội dung file:
-```
-supabase/migrations/20260514000007_bank_accounts_is_company_and_delete.sql
-```
-→ Run.
-
-Migration làm:
-1. Thêm cột `is_company BOOLEAN DEFAULT true` vào `bank_accounts`
-2. Tạo RPC `delete_bank_account` (xóa thông minh)
-3. Thêm cột `updated_at` + trigger nếu chưa có
-
-### Bước 2: (TÙY CHỌN) Chạy diagnostic để check 70tr
-
-Mở file `diagnostic-queries.sql` → chạy **QUERY 1** trước → xem 70tr đó là giao dịch gì.
-
-Nếu là giao dịch test cũ → uncomment QUERY 2 → paste ID → xóa.
-
-### Bước 3: Upload 4 file code
+### Bước 1: Upload 3 file
 
 ```
-app/(dashboard)/affiliates/[id]/page.tsx              ← GHI ĐÈ
-app/(dashboard)/settings/page.tsx                     ← GHI ĐÈ (hoặc MỚI)
-app/(dashboard)/settings/actions.ts                   ← MỚI
-components/settings/bank-accounts-manager.tsx         ← MỚI
+app/(dashboard)/affiliates/[id]/page.tsx                  ← GHI ĐÈ
+components/affiliates/affiliate-period-selector.tsx       ← MỚI
+components/affiliates/activity-log.tsx                    ← MỚI
 ```
 
-⚠️ **Lưu ý**: Nếu folder `app/(dashboard)/settings/` đã có nội dung khác (vd: cài đặt user, theme...), bạn copy thêm phần "Tài khoản ngân hàng công ty" từ file mới này vào file cũ, không ghi đè toàn bộ.
+**KHÔNG cần SQL migration**.
 
-### Bước 4: Commit + Push
+### Bước 2: Commit + Push
 
-Message: `Phase 10 Fix: bank accounts management + fix deposit modal`
+Message: `Phase 11: period filter + activity log on affiliate page`
 
-### Bước 5: Test
+### Bước 3: Test
 
-**Test 1 - TK hiện trong dropdown nộp tiền**:
-1. Vào `/affiliates/[id]` của bất kỳ affiliate
-2. Bấm "💰 Nộp tiền"
-3. Modal hiện → dropdown "TK công ty nhận" có TK của bạn (Techcombank ****1234 hoặc gì đó)
+**Test 1 - Period filter**:
+1. Vào `/affiliates/[id]`
+2. Mặc định: hiển thị "Tất cả thời gian"
+3. Bấm "Tháng này" → URL có `?from=2026-05-01&to=2026-05-31&preset=this_month`
+4. 4 KPI cập nhật theo tháng
+5. Bảng hoa hồng + Activity log cũng cập nhật
 
-**Test 2 - Trang cài đặt TK ngân hàng**:
-1. Vào `/settings`
-2. Thấy section "Tài khoản ngân hàng công ty" với danh sách
-3. Bấm "Thêm tài khoản" → form hiện
-4. Nhập VD: BIDV / 0123456789 / Công ty ABC → Lưu
-5. Xuất hiện trong danh sách
-6. Bấm ✏️ → sửa
-7. Bấm 🗑 → confirm:
-   - Nếu chưa có giao dịch: "Sẽ xóa hoàn toàn"
-   - Nếu có giao dịch: "Sẽ xóa mềm, giữ lịch sử"
+**Test 2 - Custom period**:
+1. Bấm "Tùy chọn" → 2 input date hiện ra
+2. Chọn from = 01/03/2026, to = 31/03/2026
+3. Tất cả dữ liệu lọc theo Q1/Tháng 3
 
-**Test 3 - Diagnostic 70tr**:
-1. Chạy QUERY 1 trong `diagnostic-queries.sql`
-2. Xem các giao dịch income đó là gì
-3. Nếu sai → xóa bằng QUERY 2
-4. Refresh trang affiliate → "Đang cầm" sẽ hiển thị đúng
+**Test 3 - Activity log**:
+1. Cuộn xuống "Hoạt động gần đây"
+2. Thấy mix giữa hoa hồng + nộp tiền
+3. Sắp xếp theo ngày, mới nhất trước
+4. Hoa hồng từ Shopee có icon 🔗
+
+**Test 4 - Thuế vẫn YTD**:
+1. Chuyển sang "Tháng trước"
+2. KPI thay đổi nhưng card "Thuế TNCN" vẫn hiển thị số YTD cả năm
+3. Có note nhỏ "Luôn tính cả năm" để rõ
 
 ## 💡 Lưu ý
 
-### Sau khi xóa TK mềm
+### Modal Nộp tiền — số đúng
 
-TK xóa mềm vẫn còn trong DB (chỉ ẩn khỏi danh sách). Các giao dịch cũ vẫn dùng được, vẫn xem được trong Sổ ngân hàng.
+Modal "Nộp tiền" cần biết tổng "Đã thực nhận" và "Đang cầm" của **tất cả thời gian** để gợi ý số nộp đúng. Phase 11 fix điều này:
+- KPI trên trang lọc theo period
+- Modal vẫn dùng `allTimeReceived` và `allTimeTotalDeposited`
 
-Nếu muốn khôi phục: chạy SQL:
-```sql
-UPDATE bank_accounts SET is_deleted = false WHERE id = 'xxx';
-```
+### Tuần bắt đầu T2
 
-### Tại sao bỏ filter `is_company`?
+Logic preset "Tuần này" tính từ Thứ 2 đến Chủ nhật (chuẩn Việt Nam), không phải CN-T7.
 
-Logic mới đơn giản hơn:
-- Bảng `bank_accounts` = chỉ TK công ty
-- TK affiliate cá nhân lưu trong `affiliate_accounts.bank_name / bank_account_number`
+### URL có state
 
-→ Không cần filter, lấy hết `bank_accounts` không bị xóa.
+Khi bấm preset, URL update với `?from=...&to=...&preset=...`. Có thể bookmark hoặc share link với filter cụ thể.
 
-Cột `is_company` vẫn được tạo (default true) để tương thích về sau nếu cần phân biệt.
+### Performance
+
+- Query commissions giới hạn 100 records
+- Query deposits giới hạn 100 records
+- Bank info được fetch 1 lần với `IN (...)` thay vì N+1
