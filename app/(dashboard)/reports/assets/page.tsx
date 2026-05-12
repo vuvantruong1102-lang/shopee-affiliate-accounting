@@ -8,8 +8,10 @@ import {
   HandCoins,
   Clock,
   TrendingUp,
+  PieChart as PieChartIcon,
 } from "lucide-react";
 import Link from "next/link";
+import { AssetsPieChart } from "@/components/reports/assets-pie-chart";
 
 interface BankBreakdownItem {
   id: string;
@@ -64,6 +66,14 @@ export default async function AssetsReportPage() {
     if (total <= 0) return "0%";
     return ((part / total) * 100).toFixed(1) + "%";
   }
+
+  // Data cho pie chart
+  const pieData = [
+    { name: "Tiền mặt", value: cash, color: "#10b981" },        // success
+    { name: "Tiền ngân hàng", value: bank, color: "#3b82f6" },  // primary
+    { name: "Affiliate đang cầm", value: holding, color: "#f59e0b" }, // warning
+    { name: "Shopee chưa chuyển", value: pending, color: "#6b7280" }, // muted
+  ].filter((d) => d.value > 0);
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -132,49 +142,25 @@ export default async function AssetsReportPage() {
         />
       </div>
 
-      {/* Chi tiết các TK ngân hàng */}
+      {/* Pie chart cơ cấu + Affiliate đang cầm */}
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2">
-              <Building2 className="w-4 h-4" />
-              Chi tiết số dư ngân hàng
+              <PieChartIcon className="w-4 h-4" />
+              Cơ cấu tài sản
             </CardTitle>
             <p className="text-xs text-muted-foreground mt-0.5">
-              {d.bank_breakdown.length} tài khoản · Tổng {formatCurrency(bank)}
+              Tỷ trọng từng loại tài sản trên tổng số {formatCurrency(total)}
             </p>
           </CardHeader>
-          <CardContent className="p-0">
-            {d.bank_breakdown.length === 0 ? (
-              <div className="px-6 py-8 text-center text-sm text-muted-foreground">
-                Chưa có tài khoản ngân hàng nào
+          <CardContent>
+            {pieData.length === 0 ? (
+              <div className="py-12 text-center text-sm text-muted-foreground">
+                Chưa có dữ liệu tài sản
               </div>
             ) : (
-              <div className="divide-y divide-border">
-                {d.bank_breakdown.map((b) => (
-                  <div
-                    key={b.id}
-                    className="flex items-center justify-between px-6 py-3 hover:bg-muted/30"
-                  >
-                    <div className="min-w-0">
-                      <div className="text-sm font-medium truncate">
-                        {b.bank_name}
-                      </div>
-                      <div className="text-xs text-muted-foreground font-mono">
-                        {b.account_number}
-                      </div>
-                    </div>
-                    <div
-                      className={cn(
-                        "text-sm font-bold tabular-nums",
-                        Number(b.balance) >= 0 ? "" : "text-destructive",
-                      )}
-                    >
-                      {formatCurrency(Number(b.balance))}
-                    </div>
-                  </div>
-                ))}
-              </div>
+              <AssetsPieChart data={pieData} total={total} />
             )}
           </CardContent>
         </Card>
