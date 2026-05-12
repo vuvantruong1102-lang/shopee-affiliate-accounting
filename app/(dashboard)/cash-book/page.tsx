@@ -1,10 +1,9 @@
 import { PageHeader } from "@/components/layout/page-header";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { createClient } from "@/lib/supabase/server";
-import { Plus, Wallet } from "lucide-react";
-import Link from "next/link";
+import { Wallet } from "lucide-react";
 import { CashBookView } from "@/components/books/cash-book-view";
+import { CashBookActions } from "@/components/cash-book/cash-book-actions";
 import { getDateRange, type PeriodType } from "@/lib/date-period";
 import type {
   CashTransaction,
@@ -24,14 +23,13 @@ export default async function CashBookPage({ searchParams }: PageProps) {
   const params = await searchParams;
   const period = params.period ?? "this_month";
   const range = getDateRange(period, params.from, params.to);
-
   const supabase = await createClient();
 
   const [transactionsRes, statsRes, dailyRes, categoriesRes, affiliatesRes] = await Promise.all([
     supabase
       .from("cash_transactions")
       .select("*")
-      .eq("is_deleted", false)
+      .or("is_deleted.is.null,is_deleted.eq.false")
       .gte("trans_date", range.from)
       .lte("trans_date", range.to)
       .order("trans_date", { ascending: false })
@@ -83,14 +81,7 @@ export default async function CashBookPage({ searchParams }: PageProps) {
       <PageHeader
         title="Sổ tiền mặt"
         description={`${range.label} • ${stats.transaction_count} giao dịch`}
-        action={
-          <Button asChild>
-            <Link href="/data-entry">
-              <Plus className="w-4 h-4" />
-              Nhập giao dịch
-            </Link>
-          </Button>
-        }
+        action={<CashBookActions />}
       />
 
       {transactions.length === 0 && stats.opening_balance === 0 ? (
@@ -101,14 +92,9 @@ export default async function CashBookPage({ searchParams }: PageProps) {
             </div>
             <p className="text-sm font-medium">Chưa có giao dịch tiền mặt</p>
             <p className="text-xs text-muted-foreground mt-1 mb-4">
-              Vào Nhập liệu để thêm giao dịch đầu tiên
+              Bấm nút "Thu tiền mặt" hoặc "Chi tiền mặt" để thêm giao dịch đầu tiên
             </p>
-            <Button asChild>
-              <Link href="/data-entry">
-                <Plus className="w-4 h-4" />
-                Nhập giao dịch
-              </Link>
-            </Button>
+            <CashBookActions />
           </CardContent>
         </Card>
       ) : (
