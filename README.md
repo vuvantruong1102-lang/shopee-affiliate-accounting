@@ -1,90 +1,128 @@
-# Phase 6 Fix 3 — Thêm ô "Chi phí Facebook Ads" vào dashboard
+# Phase 7 — Báo cáo cốt lõi
 
-## 🎯 Thay đổi
+## 🎯 Tính năng
 
-Thêm **ô KPI nhỏ thứ 7** ở cuối hàng nhỏ: **"Chi phí Facebook Ads"**.
+### 3 báo cáo cốt lõi
 
-```
-Hàng 2 (7 ô nhỏ):
-[DT Gross] [Thuế PN] [Thuế đã nộp] [Thuế thêm] [TM] [NH] [Chi phí FB Ads ✨]
-```
+| Báo cáo | URL | Mục đích |
+|---|---|---|
+| **Doanh thu** | `/reports/revenue` | Tổng doanh thu, breakdown theo tháng, so sánh kỳ trước |
+| **Theo Affiliate** | `/reports/affiliates` | Bảng tổng hợp từng affiliate, ai đang cầm tiền chưa nộp |
+| **Lãi/Lỗ (P&L)** | `/reports/pnl` | Doanh thu - Chi phí = Lãi, có pie chart cơ cấu chi phí |
 
-## 🧠 Logic tính
+### Tính năng chung 3 báo cáo
 
-Query tổng `amount` của các giao dịch `expense` trong tháng này, có `expense_category_id` thuộc danh sách category match theo tên:
+- ✅ **Filter linh hoạt**: Tháng / Tháng trước / Quý / Năm / Năm trước / Tùy chỉnh ngày
+- ✅ **So sánh kỳ trước**: tự động tính khoảng thời gian cùng độ dài và hiển thị % tăng/giảm
+- ✅ **Xuất Excel/CSV** (UTF-8 BOM, đọc được tiếng Việt)
+- ✅ **In/Lưu PDF** qua Ctrl+P (print CSS sẵn từ Phase 3)
+- ✅ **Recharts** cho biểu đồ (cột + pie)
 
-- `Facebook Ads`
-- `FB Ads` / `fbads`
-- `Marketing`
-- `Quảng cáo` / `Quang cao`
-- `Ads` (chuẩn xác hoặc có khoảng trắng xung quanh)
+### Đặc biệt từng báo cáo
 
-Tính từ **CẢ** `bank_transactions` + `cash_transactions`. Lấy giao dịch trong khoảng `[đầu tháng → cuối tháng]` hiện tại.
+**Báo cáo Doanh thu**:
+- 4 KPI: Gross / Net (highlight) / Thuế KT / Số đợt
+- Biểu đồ cột theo tháng (Gross + Net)
+- Bảng chi tiết từng tháng
+
+**Báo cáo theo Affiliate**:
+- 4 KPI tổng: Net / Đã nhận / Đã nộp / **Đang cầm chưa nộp** (highlight)
+- Bảng có **sort được mọi cột** (gross, net, đã nhận, đang cầm, số đợt)
+- Tìm kiếm affiliate
+- Highlight đỏ nhẹ dòng có > 1tr đang cầm chưa nộp
+- Hiển thị % thay đổi net vs kỳ trước cho từng affiliate
+
+**Báo cáo P&L**:
+- 3 KPI lớn: Doanh thu / Tổng chi phí / Lãi-Lỗ (with margin %)
+- Bảng P&L style kế toán: doanh thu - chi phí từng loại - lãi/lỗ
+- Pie chart cơ cấu chi phí (Marketing, Lương, Vận hành, Thuế, Khác)
+- Bảng breakdown chi tiết theo category
+- Cảnh báo đỏ nếu lỗ
 
 ## 📋 Triển khai
 
 ### Bước 1: Chạy SQL
 
-Vào Supabase SQL Editor → paste `supabase/migrations/20260513000004_ads_expense_kpi.sql` → Run.
+Vào Supabase SQL Editor → paste `supabase/migrations/20260514000001_phase7_reports.sql` → Run.
 
-Migration sẽ:
-1. Tạo RPC `get_ads_expense_this_month`
-2. **Tự động tạo category "Facebook Ads"** nếu chưa có category nào tương tự
+Tạo 5 RPC: `get_revenue_report`, `get_revenue_by_month`, `get_affiliates_report`, `get_pnl_report`, `get_expense_breakdown`.
 
-### Bước 2: Kiểm tra category
-
-Sau khi chạy SQL, kiểm tra danh sách category:
-
-```sql
-SELECT id, name, type, is_active 
-FROM expense_categories 
-WHERE is_active = true 
-ORDER BY display_order;
-```
-
-Bạn nên thấy:
-- Có category tên "Facebook Ads", "Marketing", hoặc tương tự
-- Nếu chưa có → migration đã tự tạo "Facebook Ads"
-
-### Bước 3: Upload 1 file code
+### Bước 2: Upload 9 file code
 
 ```
-app/(dashboard)/dashboard/page.tsx                ← GHI ĐÈ
+lib/report-period.ts                                       [FILE MỚI]
+app/(dashboard)/reports/page.tsx                           [GHI ĐÈ placeholder]
+app/(dashboard)/reports/revenue/page.tsx                   [FILE MỚI - folder mới]
+app/(dashboard)/reports/affiliates/page.tsx                [FILE MỚI - folder mới]
+app/(dashboard)/reports/pnl/page.tsx                       [FILE MỚI - folder mới]
+components/reports/period-selector.tsx                     [FILE MỚI]
+components/reports/revenue-report-view.tsx                 [FILE MỚI]
+components/reports/affiliates-report-view.tsx              [FILE MỚI]
+components/reports/pnl-report-view.tsx                     [FILE MỚI]
 ```
 
-### Bước 4: Commit + Push
+⚠️ Đặt file đúng vị trí, không tạo `lib/components/...`
 
-Message: `Phase 6 Fix 3: Add Facebook Ads expense KPI`
+### Bước 3: Commit + Push
 
-### Bước 5: Test
+Message: `Phase 7: Revenue + Affiliates + P&L reports`
 
-1. Vào `/dashboard` → kiểm tra hàng KPI nhỏ có **7 ô** (cuối là Facebook Ads)
-2. Vào **Nhập liệu → Chi tiêu** → thêm 1 chi phí thử nghiệm:
-   - Khoản mục: chọn "Facebook Ads" (hoặc category tương tự)
-   - Số tiền: ví dụ 5.000.000đ
-   - Nguồn: TK ngân hàng
-3. Refresh dashboard → KPI "Chi phí Facebook Ads" phải hiện 5.000.000đ
-4. Subtitle: "1 giao dịch tháng này"
+### Bước 4: Test
+
+**Test Báo cáo Doanh thu**:
+1. Vào `/reports/revenue` → mặc định là tháng này
+2. Đổi sang "Tháng trước" → data đổi, % so sánh cập nhật
+3. Chọn ngày custom → check kết quả
+4. Bấm "Xuất Excel" → file CSV mở được trên Excel
+5. Bấm "In/PDF" → Ctrl+P, kiểm tra trang in chỉ có header + bảng
+
+**Test Báo cáo Affiliate**:
+1. Vào `/reports/affiliates`
+2. Click vào header cột → sort tăng/giảm
+3. Tìm kiếm affiliate → filter đúng
+4. Affiliate nào đang cầm > 1tr → có dòng highlight + icon cảnh báo
+5. Bấm Xuất Excel → kiểm tra format
+
+**Test Báo cáo P&L**:
+1. Trước khi test, nhập vài chi tiêu test (Marketing, Lương)
+2. Vào `/reports/pnl`
+3. Kiểm tra Doanh thu Net hiển thị đúng
+4. Bảng P&L: doanh thu - chi phí - lãi/lỗ
+5. Pie chart hiển thị cơ cấu chi phí
+6. Nếu lỗ → có cảnh báo đỏ
 
 ## 💡 Lưu ý
 
-### Match nhiều category
+### Logic so sánh kỳ trước
 
-RPC tự gom các category có tên chứa "Marketing" / "Facebook Ads" / "Ads" / "Quảng cáo". 
+Hệ thống tự tính khoảng thời gian cùng độ dài. Ví dụ:
+- Kỳ này: 01/05/2026 → 31/05/2026 (31 ngày)
+- Kỳ trước: 31/03/2026 → 30/04/2026 (31 ngày)
+- Năm này: 01/01/2026 → 31/12/2026 (365 ngày)
+- Kỳ trước: 01/01/2025 → 31/12/2025
 
-Nếu bạn có **nhiều category** cùng loại (vd: "Facebook Ads", "Google Ads", "Marketing chung") → tất cả sẽ được tính chung vào KPI này.
+### Chi phí trong P&L
 
-### Phân biệt với category khác
+Lấy từ **cả** `bank_transactions` và `cash_transactions` (loại `expense`), nhóm theo `expense_categories.type`:
+- `marketing` → "Marketing & Quảng cáo"
+- `salary` → "Lương nhân viên"
+- `operating` → "Vận hành"
+- `tax` → "Thuế, phí"
+- `other` hoặc NULL → "Khác"
 
-Nếu bạn muốn **chỉ riêng Facebook Ads** (không gộp Marketing chung), hãy:
-1. Tạo category tên cụ thể: "Facebook Ads"  
-2. Khi nhập chi tiêu, chọn đúng category này
-3. Đổi RPC để chỉ match `name = 'Facebook Ads'` exact (báo tôi nếu cần)
+⚠️ **Chi phí chưa có khoản mục** (`expense_category_id = NULL`) sẽ rơi vào "Khác".
 
-### Subtitle khi chưa có category match
+### Tại sao Doanh thu trong P&L dùng NET
 
-Nếu `category_count = 0` → subtitle hiện "Chưa có khoản mục Ads" để bạn biết phải tạo.
+P&L tính lãi thực, nên dùng **net** (sau khi Shopee đã khấu trừ 10% thuế). Đây là số tiền thực mà công ty được hưởng.
 
-### Tính chi phí cũ?
+### "Đã nộp" trong Báo cáo Affiliate
 
-KPI này **chỉ tính tháng này**. Nếu muốn theo dõi cả năm hoặc theo quý, có thể mở rộng sau.
+Chỉ tính giao dịch trong khoảng thời gian báo cáo. Nếu affiliate có hoa hồng tháng 5 nhưng nộp tháng 6 → tháng 5 sẽ hiện "đang cầm", tháng 6 sẽ hiện "đã nộp".
+
+## 🔮 Có thể mở rộng
+
+- **Báo cáo tổng hợp tháng/quý**: gộp 3 báo cáo vào 1 trang
+- **Email báo cáo tự động**: cuối tháng auto gửi PDF
+- **Báo cáo theo category cụ thể**: chi tiết hơn cho từng khoản
+- **Forecast**: dự báo doanh thu/lãi tháng sau dựa trên xu hướng
