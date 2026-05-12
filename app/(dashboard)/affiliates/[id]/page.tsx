@@ -86,6 +86,7 @@ export default async function AffiliateDetailPage({ params, searchParams }: Page
 
   const totalGross = commissions.reduce((s, c) => s + c.gross_amount, 0);
   const totalTax = commissions.reduce((s, c) => s + c.tax_withheld, 0);
+  const totalNet = commissions.reduce((s, c) => s + c.net_amount, 0);
   const totalReceived = commissions
     .filter((c) => c.status === "received")
     .reduce((s, c) => s + c.net_amount, 0);
@@ -93,7 +94,7 @@ export default async function AffiliateDetailPage({ params, searchParams }: Page
     .filter((c) => c.status === "pending")
     .reduce((s, c) => s + c.net_amount, 0);
 
-  // ============ DEPOSITS (cash_transactions income) ============
+  // ============ DEPOSITS ============
   let cashDepositsQuery = supabase
     .from("cash_transactions")
     .select("id, trans_date, amount, description, notes")
@@ -297,9 +298,9 @@ export default async function AffiliateDetailPage({ params, searchParams }: Page
 
       <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
         <KpiCard
-          label="Tổng hoa hồng"
-          value={formatCurrency(totalGross)}
-          subtitle={`${formatCurrency(totalTax)} thuế đã KT`}
+          label="Tổng hoa hồng (Net)"
+          value={formatCurrency(totalNet)}
+          subtitle={`${formatCurrency(totalTax)} thuế đã KT · Gross ${formatCurrency(totalGross)}`}
         />
         <KpiCard
           label="Đã thực nhận"
