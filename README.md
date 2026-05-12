@@ -1,49 +1,78 @@
-# Phase 8 Fix — Đơn giản hóa Calculator
+# Phase 8 Fix 2 — Sửa lại UI Calculator
 
-## 🎯 Thay đổi so với Phase 8
+## 🎯 Thay đổi
 
-| Mục | Phase 8 (cũ) | Phase 8 Fix (mới) |
-|---|---|---|
-| Phạm vi tính toán (1/3/6/12 tháng) | ✅ Có | ❌ Bỏ |
-| Chi phí khác | ✅ Có | ❌ Bỏ |
-| Form nhập | Số/tháng × số tháng | Nhập trực tiếp số tiền |
-| Layout kết quả | Bảng dài, nhiều dòng | **Card lớn**, dễ nhìn |
-| In đậm các mục chính | Bình thường | **Bold + Border** |
+### 1. Form "Nhập thông số" — mỗi mục 1 hàng
 
-## 📋 Layout kết quả mới
+Trước: 2 cột (HH Gross + Lương cùng hàng)
+Sau: **Mỗi input 1 hàng riêng**, dễ nhìn hơn
+
+| Hàng | Trường |
+|---|---|
+| 1 | Hoa hồng Gross |
+| 2 | Lương |
+| 3 | Giảm trừ gia cảnh (+ quick buttons) |
+| 4 | Chi phí Facebook Ads |
+
+**Font số đậm hơn**: `text-lg font-semibold tabular-nums` → số tiền dễ đọc
+
+### 2. Giảm trừ — 1 ô tự điền
+
+❌ Bỏ: checkbox "Có giảm trừ bản thân" + input "Số NPT"
+✅ Mới: **1 ô CurrencyInput** để người dùng tự nhập số tiền
+
+**Quick preset buttons** bên dưới (chọn nhanh):
+- Bản thân: 15,500,000đ
+- BT + 1 NPT: 21,700,000đ
+- BT + 2 NPT: 27,900,000đ
+- BT + 3 NPT: 34,100,000đ
+
+Click button → tự fill vào ô. Hoặc nhập số tay tùy ý.
+
+### 3. Kết quả ước tính — thêm % và giảm font
+
+Layout dạng **MainRow** (mỗi hạng mục 1 hàng có icon + label + %, + số):
 
 ```
-┌────────────────────────────────────────────────────┐
-│ 📈 Hoa hồng Gross                  +XX,XXX,XXX đ    │ ← Card lớn, viền primary
-├────────────────────────────────────────────────────┤
-│ Giảm trừ                          −XX,XXX,XXX đ    │ ← Card thường
-│   └─ Giảm trừ bản thân                X,XXX,XXX đ  │
-│   └─ Giảm trừ N người phụ thuộc       X,XXX,XXX đ  │
-├────────────────────────────────────────────────────┤
-│ 🧾 Thuế phải nộp                   XX,XXX,XXX đ    │ ← Card lớn, viền warning
-│   └─ Thuế tạm nộp (Shopee KT 10%)     X,XXX,XXX đ  │
-│   └─ Thuế còn phải nộp thêm           X,XXX,XXX đ  │ (warning nếu > 0)
-├────────────────────────────────────────────────────┤
-│ 📢 Chi phí Facebook Ads            −X,XXX,XXX đ    │ ← Card lớn, viền destructive
-├════════════════════════════════════════════════════┤
-│ ✨ LỢI NHUẬN                       +XX,XXX,XXX đ    │ ← Card NỔI BẬT NHẤT
-└────────────────────────────────────────────────────┘
+📈 Hoa hồng Gross              100.0%   30.000.000đ
+💼 Lương                         0.0%            0đ  (ẩn nếu = 0)
+➖ Giảm trừ                     51.7%  −15.500.000đ
+┌─ 🧾 Thuế phải nộp              2.5%      725.000đ ──┐
+│    Thuế tạm nộp (KT 10%)      10.0%    3.000.000đ  │
+│    Được hoàn lại               7.6%   +2.275.000đ  │
+└──────────────────────────────────────────────────────┘
+📢 Chi phí Facebook Ads         16.7%   −5.000.000đ
+═══════════════════════════════════════════════════
+✨ Lợi nhuận                                  +XX,XXX,XXX đ
+                                              % trên HH: 67%
 ```
 
-### Hệ thống visual
+- Font giảm từ `text-base/text-xl` → `text-sm/text-base`
+- Mỗi hàng có **% trên HH Gross** ở cột giữa (làm cơ sở so sánh)
+- Padding compact hơn
 
-- **Card lớn** (viền 2px màu): các mục chính (HH Gross / Thuế / Ads / Lợi nhuận)
-- **Card nhỏ** (viền 1px): giảm trừ (có sub-items)
-- **Sub-row** trong card: dòng con text nhỏ hơn
-- **Lợi nhuận**: card lớn nhất, có background tint, gradient nhẹ
+### 4. Layout 2 cột + 1 hàng dưới
 
-## 🧮 Công thức (giữ nguyên)
+```
+┌──────────────────────┬──────────────────────┐
+│ 📝 Nhập thông số      │ ✨ Kết quả ước tính   │
+│   - HH Gross         │   - HH Gross + %     │
+│   - Lương            │   - Lương + %        │
+│   - Giảm trừ         │   - Giảm trừ + %     │
+│   - Ads              │   - Thuế phải nộp +% │
+│                      │   - Chi phí Ads + %  │
+│                      │   ─────────          │
+│                      │   ✨ LỢI NHUẬN + %    │
+└──────────────────────┴──────────────────────┘
+┌──────────────────────────────────────────────┐
+│ 💰 Thuế theo từng bậc (full width)            │
+│ Bậc | Khoảng TN | % | TN/bậc | Thuế | Tỷ trọng│
+│ ...                                          │
+└──────────────────────────────────────────────┘
+```
 
-1. **Thuế tạm nộp** = HH Gross × 10%
-2. **TNTT** = HH Gross + Lương − Giảm trừ
-3. **Thuế phải nộp** = TNTT áp biểu lũy tiến 5 bậc
-4. **Thuế còn phải nộp** = max(0, Thuế phải nộp − Thuế tạm nộp)
-5. **Lợi nhuận** = (HH Gross − 10% tạm KT) + Lương − Chi phí Ads − Thuế còn phải nộp thêm
+- Form bên trái, Kết quả bên phải (2 cột cân đối)
+- Thuế theo bậc **xuống dưới full-width** (bảng đầy đủ cột với progress bar)
 
 ## 📋 Triển khai
 
@@ -55,24 +84,36 @@ components/calculator/calculator-form.tsx        ← GHI ĐÈ
 
 ### Bước 2: Commit + Push
 
-Message: `Phase 8 Fix: Simplify calculator UI`
+Message: `Phase 8 Fix 2: Calculator UI redesign`
 
 ### Bước 3: Test
 
 1. Vào `/calculator` → kiểm tra:
-   - Form chỉ có 5 input: HH Gross / Lương / Ads / Có giảm trừ bản thân / Số NPT
-   - **Không còn** dropdown phạm vi, không còn ô "Chi phí khác"
-2. Nhập HH Gross = 100,000,000 → kiểm tra:
-   - Thuế tạm nộp = 10,000,000 (10%)
-   - Giảm trừ bản thân = 15,500,000
-   - Các card hiển thị to, rõ
-3. Thay đổi số NPT → card "Giảm trừ" mở rộng thêm dòng phụ thuộc
-4. Card "Lợi nhuận" cuối cùng nổi bật với màu xanh (lãi) hoặc đỏ (lỗ)
+   - Form mỗi input 1 hàng riêng
+   - Số tiền nhập vào hiển thị **đậm và to**
+2. Trường Giảm trừ:
+   - Mặc định: 15,500,000đ (Bản thân)
+   - Click "BT + 1 NPT" → tự đổi thành 21,700,000đ
+   - Có thể nhập tay 20,000,000đ (giá trị tùy ý)
+3. Cột kết quả bên phải:
+   - Mỗi hàng có % so với HH Gross
+   - Font nhỏ hơn version cũ
+   - Lợi nhuận nổi bật nhất ở cuối
+4. Cuộn xuống → bảng "Thuế theo bậc" full-width với progress bar
 
-## 💡 Điểm nhấn UI
+## 💡 Lưu ý
 
-- 📈 **Icon to** (10x10) cho card lớn
-- 🎨 **Border 2px màu sắc** phân biệt loại (primary/warning/danger/success)
-- 💪 **Font bold** cho label và số tiền của card lớn (text-base/text-xl)
-- 🌈 **Background tint nhẹ** cho card lợi nhuận
-- ✨ **Sparkles icon** cho lợi nhuận → cảm giác "kết quả cuối cùng"
+### Quick buttons "Giảm trừ"
+
+Mặc định preset Bản thân được active (highlight). Khi nhập tay số khác → không button nào active.
+
+### % được tính trên HH Gross
+
+Đây là cách phổ biến để xem tỷ trọng. Ví dụ:
+- Giảm trừ 15.5tr / HH 30tr = 51.7%
+- Chi phí Ads 5tr / HH 30tr = 16.7%
+- Lợi nhuận sau cùng / HH = mức % thực bạn giữ lại
+
+### Ẩn dòng "Lương" khi = 0
+
+Để giao diện gọn, hàng Lương chỉ hiện khi > 0.
