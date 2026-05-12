@@ -108,7 +108,6 @@ export default async function AffiliateDetailPage({ params }: PageProps) {
     0,
   );
 
-  // Lương: tổng thuế đã KT từ lương
   const monthlySalaryTax = aff.has_company_salary
     ? Number(aff.monthly_salary_tax_withheld)
     : 0;
@@ -125,10 +124,12 @@ export default async function AffiliateDetailPage({ params }: PageProps) {
     dependentCount: aff.dependent_count,
   });
 
+  // ✨ FIX: Lấy TẤT CẢ bank_accounts (không filter is_company nữa, đảm bảo dropdown luôn có)
+  // Vì TK affiliate cá nhân lưu trong bảng affiliate_accounts.bank_*, 
+  // còn bảng bank_accounts mặc định là TK công ty
   const { data: companyBanksData } = await supabase
     .from("bank_accounts")
     .select("id, bank_name, account_number, account_holder")
-    .eq("is_company", true)
     .eq("is_deleted", false)
     .order("bank_name");
 
@@ -145,14 +146,12 @@ export default async function AffiliateDetailPage({ params }: PageProps) {
     aff.status === "active" ? "Đang hoạt động" :
     aff.status === "paused" ? "Tạm dừng" : "Đã đóng";
 
-  // MST: fallback các tên field có thể
   const mstValue: string | null | undefined =
     (aff as unknown as Record<string, string | null | undefined>).personal_tax_code ??
     (aff as unknown as Record<string, string | null | undefined>).mst ??
     (aff as unknown as Record<string, string | null | undefined>).tax_code ??
     null;
 
-  // Số thuế cần nộp thêm: fallback nếu field có tên khác
   const taxResultAny = taxResult as unknown as Record<string, number>;
   const additionalTax = Number(
     taxResultAny.additionalTaxNeeded ??
