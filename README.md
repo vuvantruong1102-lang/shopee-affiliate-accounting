@@ -1,119 +1,133 @@
-# Phase 8 Fix 3 — Sửa công thức lợi nhuận + gọn UI
+# Phase 8 Fix 4 — Sửa công thức Báo cáo P&L
 
-## 🐛 Bug đã sửa
+## 🐛 Vấn đề
 
-### Công thức lợi nhuận sai
+Báo cáo P&L hiện đang tính sai:
 
-**Trước (sai)**:
 ```
-Lợi nhuận = HH Net + Lương − Ads − Thuế còn phải nộp thêm
-         = (HH Gross − 10%) + Lương − Ads − Thuế còn phải nộp thêm
-```
-
-**Sau (đúng)**:
-```
-Lợi nhuận = HH Gross − Tổng thuế phải nộp − Chi phí Ads
+Lãi (cũ) = Doanh thu Net − Chi phí (Marketing/Lương/Vận hành/Khác)
+        = (Gross − thuế tạm 10%) − Chi phí
 ```
 
-**Tại sao**:
-- Lương là **thu nhập cá nhân riêng** của người đứng tên affiliate (từ công ty khác), không thuộc lợi nhuận của bạn
-- Lương chỉ là **tham số** để tính chính xác mức thuế lũy tiến (vì thuế tính trên tổng thu nhập)
-- "Tổng thuế phải nộp" đã bao gồm cả thuế tạm + thuế phải nộp thêm → không cần trừ riêng
+→ **Số thuế phải nộp thêm (theo lũy tiến)** không được trừ → lãi cao hơn thực tế.
+
+Từ screenshot của bạn:
+- Doanh thu Gross: 2.092.955.403đ
+- Chi phí: 20.000.000đ (Marketing FB Ads)
+- **Lãi đang hiển thị (sai)**: 1.863.659.862đ
+- **Lãi thực tế** sẽ thấp hơn rất nhiều sau khi trừ thuế lũy tiến
+
+## ✅ Sửa theo Phương án A
+
+Đồng nhất với Calculator:
+
+```
+Lãi = Doanh thu Gross − Tổng thuế phải nộp − Chi phí
+```
+
+Trong đó:
+- **Doanh thu Gross**: Tổng hoa hồng trước thuế (Shopee báo)
+- **Tổng thuế phải nộp**: Tính theo lũy tiến 5 bậc cho từng affiliate (như Dashboard KPI "Tổng thuế phải nộp")
+- **Chi phí**: Tổng chi phí thực tế (Marketing, Lương, Vận hành...)
 
 ## 🎨 UI thay đổi
 
-### Bảng "Kết quả ước tính" gọn lại — chỉ 4 mục
+### 4 KPI lớn ở đầu (thêm 1 cái)
 
-❌ Bỏ: Lương, Giảm trừ (đã hiển thị trong form rồi, không cần lặp)
-✅ Giữ:
-1. **Hoa hồng Gross** (card lớn primary)
-2. **Thuế phải nộp** (card lớn warning + 2 sub-items: tạm nộp / nộp thêm)
-3. **Chi phí Facebook Ads** (card lớn danger)
-4. **Lợi nhuận** (card nổi bật nhất)
+| Trước | Sau |
+|---|---|
+| 3 KPI: Doanh thu Net / Chi phí / Lãi | **4 KPI**: Doanh thu Gross / **Tổng thuế phải nộp** / Chi phí / Lãi |
 
-Bên dưới có dòng nhỏ ghi công thức: "Lợi nhuận = HH Gross − Tổng thuế phải nộp − Chi phí Ads"
+KPI "Thuế phải nộp" có color `warning`, tăng = xấu (invertedColor).
 
-### Bảng "Thuế theo từng bậc" — thiết kế lại
-
-**Trước**: Bảng truyền thống với cột Bậc / Khoảng / Thuế suất / TN / Thuế / Tỷ trọng — cột "Bậc" quá hẹp, chữ nhảy dòng.
-
-**Sau**: Mỗi bậc là **1 hàng grid 12 cột cân đối**:
+### Bảng P&L chi tiết — 3 sections
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│ [1] Bậc 1            5%      TN trong bậc:    Thuế:    Tỷ trọng│
-│     Đến 10tr                  10,000,000đ  500,000đ   ███░ 53%│
-├─────────────────────────────────────────────────────────────────┤
-│ [2] Bậc 2           10%      TN trong bậc:    Thuế:    Tỷ trọng│
-│     10-30tr                    4,500,000đ  450,000đ   █░░░ 47%│
-└─────────────────────────────────────────────────────────────────┘
+DOANH THU
+  Doanh thu Gross                              +2.092.955.403đ   100%
+    Trong đó Net (sau Shopee KT 10%)            1.883.659.862đ   90%
+
+THUẾ TNCN
+  Tổng thuế phải nộp                            −XXX.XXX.XXXđ    XX%
+    Thuế tạm nộp (Shopee KT 10%)                209.295.541đ
+    Thuế còn phải nộp thêm (quyết toán)         XX.XXX.XXXđ
+
+CHI PHÍ
+  Marketing & Quảng cáo                         −20.000.000đ     1.1%
+  Lương nhân viên                                —
+  Vận hành                                       —
+  Thuế, phí khác                                 —
+  Khác                                           —
+  Tổng chi phí                                  −20.000.000đ     1.1%
+
+═══════════════════════════════════════════════════════════════════
+LÃI                                            +XXX.XXX.XXXđ    XX%
 ```
 
-- **Số bậc to (badge tròn)** ở đầu hàng
-- **Mỗi cột có label nhỏ** ở trên ("SUẤT", "TN TRONG BẬC", "THUẾ", "TỶ TRỌNG") → dễ đọc
-- **Khoảng thu nhập** hiển thị dưới "Bậc N" → không bị nhảy dòng
-- **Progress bar tỷ trọng** to hơn, có % bên cạnh
-- **Responsive**: ở mobile (< sm) tự xếp lại thành nhiều hàng
+### Pie chart "Cơ cấu trừ ra khỏi DT"
 
-### 4 stat tổng ở đầu bảng bậc thuế
+Đổi từ "Cơ cấu chi phí" → bao gồm cả **Thuế TNCN** + Chi phí. Tổng (Thuế + Chi phí) là phần bị trừ khỏi Gross.
 
-```
-┌─────────────┬─────────────┬─────────────┬─────────────┐
-│ TNTT         │ Tổng thuế   │ Đã KT 10%   │ Còn phải nộp│
-│ 14,500,000đ  │ 950,000đ    │ −3,000,000đ │ 0đ          │
-└─────────────┴─────────────┴─────────────┴─────────────┘
-```
+### % tính trên Gross
 
-4 card vuông gọn, đồng đều, không bị tràn.
-
-## ✅ Verify công thức
-
-Test case 1: HH 30tr, Lương 0, Ads 5tr, Giảm trừ 15.5tr
-- Thuế tạm: 3.000.000đ
-- Thuế phải nộp: 950.000đ
-- Được hoàn: 2.050.000đ
-- **Lợi nhuận** = 30.000.000 − 950.000 − 5.000.000 = **24.050.000đ** (80.2% / HH)
-
-Test case 2: HH 100tr, Lương 20tr (cộng dồn để tính thuế), Ads 10tr, Giảm trừ 15.5tr
-- TNTT = 100tr + 20tr − 15.5tr = 104.5tr
-- Thuế phải nộp (5 bậc): 22.075.000đ
-- **Lợi nhuận** = 100.000.000 − 22.075.000 − 10.000.000 = **67.925.000đ**
-
-→ Lương 20tr không vào lợi nhuận, nhưng làm tăng thuế phải nộp.
+Tất cả % giờ tính trên **Doanh thu Gross** (100%), không phải Net như trước. Như vậy thuế và chi phí sẽ thấy rõ tỷ trọng so với tổng doanh thu.
 
 ## 📋 Triển khai
 
-### Bước 1: Upload 1 file
+### Bước 1: Chạy SQL
+
+Vào Supabase SQL Editor → paste `supabase/migrations/20260514000002_fix_pnl_use_gross.sql` → Run.
+
+Migration này:
+- DROP RPC `get_pnl_report` cũ
+- CREATE lại với return type mới (thêm `total_commission_tax_withheld`, bỏ `profit_loss/profit_margin` — tính ở client)
+
+### Bước 2: Upload 2 file
 
 ```
-components/calculator/calculator-form.tsx        ← GHI ĐÈ
+app/(dashboard)/reports/pnl/page.tsx                ← GHI ĐÈ
+components/reports/pnl-report-view.tsx              ← GHI ĐÈ
 ```
 
-### Bước 2: Commit + Push
+### Bước 3: Commit + Push
 
-Message: `Phase 8 Fix 3: Correct profit formula + redesign tax bracket table`
+Message: `Phase 8 Fix 4: P&L use Gross + total tax payable`
 
-### Bước 3: Test
+### Bước 4: Test
 
-1. Vào `/calculator` → kiểm tra:
-   - Bảng "Kết quả ước tính" chỉ còn 4 mục (HH Gross / Thuế / Ads / Lợi nhuận)
-   - Không còn dòng Lương, không còn dòng Giảm trừ
-   - Có ghi chú công thức nhỏ ở cuối
-2. Thử nhập **Lương = 20.000.000đ**:
-   - Tổng thuế phải nộp **TĂNG**
-   - Lợi nhuận **GIẢM** (vì thuế tăng)
-   - Nhưng lương KHÔNG cộng vào lợi nhuận
-3. Cuộn xuống xem **bảng thuế theo bậc**:
-   - 4 stat tổng ở đầu (TNTT / Tổng thuế / Đã KT / Còn phải nộp)
-   - Mỗi bậc là 1 hàng đẹp, có badge số bậc to + khoảng + suất + TN + thuế + tỷ trọng
-   - Không còn chữ nhảy dòng lung tung
+1. Vào `/reports/pnl` (cùng kỳ như screenshot)
+2. Kỳ vọng thấy:
+   - **4 KPI** ở đầu (thêm "Tổng thuế phải nộp")
+   - KPI "Tổng thuế phải nộp" có số > 0 (tính từ lũy tiến)
+   - Bảng P&L có section "THUẾ TNCN" với 2 dòng phụ (tạm nộp + nộp thêm)
+   - **Lãi sẽ THẤP HƠN** so với 1.863.659.862đ (vì đã trừ thuế)
+3. KPI **biên lợi nhuận** giảm xuống đáng kể
+4. Pie chart "Cơ cấu" có thêm phần "Thuế TNCN phải nộp" (màu vàng)
 
-## 💡 Phân biệt rõ vai trò "Lương"
+## 💡 Lưu ý
 
-| Vai trò | Có | Không |
-|---|---|---|
-| Vào lợi nhuận | ❌ | ✅ |
-| Vào TNCT (tính thuế) | ✅ | ❌ |
-| Vào TNTT (tính thuế) | ✅ | ❌ |
+### Tính tax_payable trong page (không phải SQL)
 
-Lương là thu nhập cá nhân của affiliate (họ làm việc cho công ty khác), không phải doanh thu của bạn. Bạn chỉ cần lương để tính chính xác mức thuế lũy tiến áp dụng cho affiliate này.
+Logic lũy tiến 5 bậc phức tạp, đã có sẵn trong `lib/ytd-tax.ts` (TypeScript). Thay vì viết lại trong PL/pgSQL, page.tsx sẽ:
+1. Lấy danh sách affiliate active
+2. Lấy commissions trong khoảng
+3. Với mỗi affiliate → gọi `calculateYtdAdditionalTax` → cộng dồn `taxPayableYtd`
+
+Cách này đảm bảo logic thuế ở **một nơi duy nhất**, dễ maintain.
+
+### "Số tháng trong khoảng"
+
+Để áp lũy tiến đúng (tính TNTT/tháng), cần biết khoảng thời gian có bao nhiêu tháng. Logic:
+```typescript
+const monthsInRange = Math.max(1, Math.min(12, 
+  Math.round((toD - fromD) / 30 days) + 1
+));
+```
+
+- Tháng (30 ngày): 1 tháng
+- Quý (90 ngày): 3 tháng  
+- Năm (365 ngày): cap ở 12 tháng
+
+### Khi có Lương
+
+Affiliate có `has_company_salary = true` → tự cộng lương vào TNTT khi tính thuế (giống logic Calculator).
