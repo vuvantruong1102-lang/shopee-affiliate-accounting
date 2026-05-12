@@ -6,11 +6,11 @@ import { BankAccountsManager } from "@/components/settings/bank-accounts-manager
 export default async function SettingsPage() {
   const supabase = await createClient();
 
-  // ✨ FIX: filter is_deleted bằng "không phải true" (bao gồm cả null + false)
-  // tránh trường hợp records có is_deleted = null bị skip
   const { data: bankAccountsData, error } = await supabase
     .from("bank_accounts")
-    .select("id, bank_name, account_number, account_holder, notes, created_at, is_deleted")
+    .select(
+      "id, bank_name, account_number, account_holder, notes, opening_balance, created_at, is_deleted",
+    )
     .or("is_deleted.is.null,is_deleted.eq.false")
     .order("bank_name");
 
