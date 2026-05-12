@@ -124,13 +124,11 @@ export default async function AffiliateDetailPage({ params }: PageProps) {
     dependentCount: aff.dependent_count,
   });
 
-  // ✨ FIX: Lấy TẤT CẢ bank_accounts (không filter is_company nữa, đảm bảo dropdown luôn có)
-  // Vì TK affiliate cá nhân lưu trong bảng affiliate_accounts.bank_*, 
-  // còn bảng bank_accounts mặc định là TK công ty
+  // ✨ FIX: filter is_deleted bằng "không phải true" (bao gồm null + false)
   const { data: companyBanksData } = await supabase
     .from("bank_accounts")
     .select("id, bank_name, account_number, account_holder")
-    .eq("is_deleted", false)
+    .or("is_deleted.is.null,is_deleted.eq.false")
     .order("bank_name");
 
   const companyBanks = (companyBanksData ?? []) as Array<{
