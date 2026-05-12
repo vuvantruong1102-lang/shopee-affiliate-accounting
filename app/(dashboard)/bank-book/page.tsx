@@ -92,9 +92,7 @@ export default async function BankBookPage({ searchParams }: PageProps) {
     supabase
       .from("affiliate_accounts")
       .select("id, full_name")
-      .eq("is_deleted", false)
-      .in("status", ["active", "paused"])
-      .order("full_name"),
+      .eq("is_deleted", false),
   ]);
 
   const transactions = (transactionsRes.data ?? []) as BankTransaction[];
@@ -121,7 +119,6 @@ export default async function BankBookPage({ searchParams }: PageProps) {
   const categories = (categoriesRes.data ?? []) as ExpenseCategory[];
   const affiliates = (affiliatesRes.data ?? []) as Pick<AffiliateAccount, "id" | "full_name">[];
 
-  // Pass bank list cho BankBookActions để dropdown chọn TK
   const banksForActions = banks.map((b) => ({
     id: b.id,
     bank_name: b.bank_name,
@@ -133,7 +130,7 @@ export default async function BankBookPage({ searchParams }: PageProps) {
       <PageHeader
         title="Sổ ngân hàng"
         description={`${selectedBank.bank_name} • ${range.label} • ${stats.transaction_count} giao dịch`}
-        action={<BankBookActions bankAccounts={banksForActions} affiliates={affiliates} />}
+        action={<BankBookActions bankAccounts={banksForActions} />}
       />
 
       <BankBookView
