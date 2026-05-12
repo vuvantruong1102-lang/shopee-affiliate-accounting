@@ -51,12 +51,6 @@ export function AffiliatesReportView({
   const [sortKey, setSortKey] = useState<SortKey>("net");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
 
-  // Map previous theo affiliate_id
-  const previousMap = useMemo(
-    () => new Map(previous.map((p) => [p.affiliate_id, p])),
-    [previous],
-  );
-
   // Filter + sort
   const filtered = useMemo(() => {
     let result = current.filter((a) =>
@@ -113,7 +107,7 @@ export function AffiliatesReportView({
     );
   }, [filtered]);
 
-  // Total period trước
+  // Total period trước - vẫn giữ để hiển thị ở KPI tổng
   const previousTotals = useMemo(() => {
     return previous.reduce(
       (acc, r) => ({
@@ -337,11 +331,6 @@ export function AffiliatesReportView({
                   </tr>
                 ) : (
                   filtered.map((a) => {
-                    const prev = previousMap.get(a.affiliate_id);
-                    const netChange = prev
-                      ? formatChange(Number(a.total_net), Number(prev.total_net))
-                      : null;
-
                     return (
                       <tr
                         key={a.affiliate_id}
@@ -370,12 +359,7 @@ export function AffiliatesReportView({
                           {formatCurrency(a.total_gross)}
                         </td>
                         <td className="px-6 py-3 text-right tabular-nums font-medium">
-                          <div>{formatCurrency(a.total_net)}</div>
-                          {netChange && (
-                            <div className={cn("text-[10px] mt-0.5", netChange.className)}>
-                              {netChange.text}
-                            </div>
-                          )}
+                          {formatCurrency(a.total_net)}
                         </td>
                         <td className="px-6 py-3 text-right tabular-nums">
                           {Number(a.pending_net) > 0 ? (
