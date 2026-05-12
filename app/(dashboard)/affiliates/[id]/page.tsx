@@ -15,7 +15,6 @@ import {
   CreditCard,
   MapPin,
   Building2,
-  FileText,
 } from "lucide-react";
 import { formatCurrency, formatDate, cn } from "@/lib/utils";
 import { calculateYtdAdditionalTax } from "@/lib/ytd-tax";
@@ -31,7 +30,6 @@ export default async function AffiliateDetailPage({ params }: PageProps) {
   const { id } = await params;
   const supabase = await createClient();
 
-  // 1. Lấy affiliate
   const { data: affiliate, error } = await supabase
     .from("affiliate_accounts")
     .select("*")
@@ -43,7 +41,6 @@ export default async function AffiliateDetailPage({ params }: PageProps) {
 
   const aff = affiliate as AffiliateAccount;
 
-  // 2. Lấy commissions + check link với shopee_payment
   const { data: commissionsData } = await supabase
     .from("commissions")
     .select("*, shopee_payments!commission_id(id)")
@@ -70,7 +67,6 @@ export default async function AffiliateDetailPage({ params }: PageProps) {
     is_from_shopee: (c.shopee_payments?.length ?? 0) > 0,
   }));
 
-  // 3. Tổng hợp KPI
   const totalGross = commissions.reduce((s, c) => s + c.gross_amount, 0);
   const totalTax = commissions.reduce((s, c) => s + c.tax_withheld, 0);
   const totalReceived = commissions
@@ -80,7 +76,6 @@ export default async function AffiliateDetailPage({ params }: PageProps) {
     .filter((c) => c.status === "pending")
     .reduce((s, c) => s + c.net_amount, 0);
 
-  // Đã nộp vào công ty = sum bank_transactions income với account_id = aff.id
   const { data: bankIncome } = await supabase
     .from("bank_transactions")
     .select("amount")
@@ -94,7 +89,6 @@ export default async function AffiliateDetailPage({ params }: PageProps) {
   );
   const undeposited = totalReceived - totalDeposited;
 
-  // 4. YTD tax
   const now = new Date();
   const currentYear = now.getFullYear();
   const monthsElapsed = now.getMonth() + 1;
@@ -127,7 +121,6 @@ export default async function AffiliateDetailPage({ params }: PageProps) {
     dependentCount: aff.dependent_count,
   });
 
-  // 5. Lấy TK công ty cho modal nộp tiền
   const { data: companyBanksData } = await supabase
     .from("bank_accounts")
     .select("id, bank_name, account_number, account_holder")
@@ -142,16 +135,21 @@ export default async function AffiliateDetailPage({ params }: PageProps) {
     account_holder: string;
   }>;
 
-  // Cảnh báo nếu nộp > thực nhận
   const overDeposited = totalDeposited > totalReceived && totalReceived > 0;
 
   const statusLabel =
     aff.status === "active" ? "Đang hoạt động" :
     aff.status === "paused" ? "Tạm dừng" : "Đã đóng";
 
+  // Lấy MST từ field bất kỳ nếu có (fallback an toàn)
+  const mstValue: string | null | undefined =
+    (aff as unknown as Record<string, string | null | undefined>).personal_tax_code ??
+    (aff as unknown as Record<string, string | null | undefined>).mst ??
+    (aff as unknown as Record<string, string | null | undefined>).tax_code ??
+    null;
+
   return (
     <div className="space-y-6 animate-fade-in">
-      {/* Back link */}
       <div className="flex items-center gap-2 -mb-2">
         <Button variant="ghost" size="sm" asChild>
           <Link href="/affiliates">
@@ -161,7 +159,6 @@ export default async function AffiliateDetailPage({ params }: PageProps) {
         </Button>
       </div>
 
-      {/* Header với actions */}
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold">{aff.full_name}</h1>
@@ -202,7 +199,6 @@ export default async function AffiliateDetailPage({ params }: PageProps) {
         </div>
       </div>
 
-      {/* 4 KPI */}
       <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
         <KpiCard
           label="Tổng hoa hồng"
@@ -237,9 +233,7 @@ export default async function AffiliateDetailPage({ params }: PageProps) {
         />
       </div>
 
-      {/* Thông tin liên hệ + Thuế TNCN - 2 cột compact */}
       <div className="grid gap-4 lg:grid-cols-2">
-        {/* THÔNG TIN LIÊN HỆ - layout compact */}
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Thông tin liên hệ</CardTitle>
@@ -248,7 +242,9 @@ export default async function AffiliateDetailPage({ params }: PageProps) {
             <InfoRow icon={Mail} label="Email" value={aff.email} />
             <InfoRow icon={Phone} label="Điện thoại" value={aff.phone} />
             <InfoRow icon={CreditCard} label="CCCD/CMND" value={aff.cccd} mono />
-            <InfoRow icon={FileText} label="MST cá nhân" value={aff.tax_id} mono />
+            {mstValue && (
+              <InfoRow icon={CreditCard} label="MST cá nhân" value={mstValue} mono />
+            )}
             <InfoRow icon={MapPin} label="Địa chỉ" value={aff.address} />
             <InfoRow
               icon={Building2}
@@ -264,7 +260,6 @@ export default async function AffiliateDetailPage({ params }: PageProps) {
           </CardContent>
         </Card>
 
-        {/* THUẾ TNCN - layout compact */}
         <Card>
           <CardHeader className="flex flex-row items-start justify-between space-y-0">
             <div>
@@ -303,7 +298,6 @@ export default async function AffiliateDetailPage({ params }: PageProps) {
               compact
             />
 
-            {/* Highlight phần phải nộp */}
             <div className="px-6 py-4 border-t-2 border-border bg-muted/30">
               <div className="flex items-center justify-between gap-3">
                 <div>
@@ -337,7 +331,6 @@ export default async function AffiliateDetailPage({ params }: PageProps) {
         </Card>
       </div>
 
-      {/* Hoa hồng gần đây */}
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Hoa hồng gần đây</CardTitle>
@@ -353,9 +346,6 @@ export default async function AffiliateDetailPage({ params }: PageProps) {
   );
 }
 
-// ============================================================================
-// COMPONENTS
-// ============================================================================
 function KpiCard({
   label,
   value,
