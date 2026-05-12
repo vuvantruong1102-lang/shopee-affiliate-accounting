@@ -1,132 +1,78 @@
-# Phase 8 — Tính toán (Tax Calculator)
+# Phase 8 Fix — Đơn giản hóa Calculator
 
-## 🎯 Tính năng
+## 🎯 Thay đổi so với Phase 8
 
-Trang **"Tính toán"** ở menu trái dưới "Báo cáo" — công cụ máy tính độc lập để **ước tính nhanh** thuế và lợi nhuận. Không cần dữ liệu từ DB.
+| Mục | Phase 8 (cũ) | Phase 8 Fix (mới) |
+|---|---|---|
+| Phạm vi tính toán (1/3/6/12 tháng) | ✅ Có | ❌ Bỏ |
+| Chi phí khác | ✅ Có | ❌ Bỏ |
+| Form nhập | Số/tháng × số tháng | Nhập trực tiếp số tiền |
+| Layout kết quả | Bảng dài, nhiều dòng | **Card lớn**, dễ nhìn |
+| In đậm các mục chính | Bình thường | **Bold + Border** |
 
-### Mục đích sử dụng
-
-- "Nếu tôi có affiliate mới với HH 50tr/tháng thì thuế bao nhiêu?"
-- "Tôi nên chi bao nhiêu cho Ads để có lợi nhuận?"
-- "1 năm tới nếu giữ mức này thì cuối năm phải nộp thêm bao nhiêu?"
-- "Có nên thuê thêm nhân viên không?"
-
-## 🎨 Layout
+## 📋 Layout kết quả mới
 
 ```
-┌─────────────────────────────────────┬────────────────────────┐
-│ Bên trái (3/5):                      │ Bên phải (2/5):         │
-│                                      │                         │
-│ 📝 Form nhập:                        │ 💰 Thuế theo bậc        │
-│   - Phạm vi (1/3/6/12 tháng)         │   - TNTT tổng           │
-│   - HH gross/tháng                   │   - TNTT/tháng          │
-│   - Lương/tháng                      │   - Bậc 1: 5% (đến 10tr)│
-│   - Chi phí Ads/khác                 │   - Bậc 2: 10% (10-30tr)│
-│   - Giảm trừ bản thân                │   - Bậc 3: 20% (30-60tr)│
-│   - Số NPT                           │   - Bậc 4: 30%...       │
-│                                      │   - Bậc 5: 35%...       │
-│ 📊 Bảng kết quả:                     │   ─────────────         │
-│   DOANH THU                          │   Tổng thuế             │
-│     - HH Gross / Net                 │   Đã KT 10%             │
-│     - Lương                          │   Còn phải nộp / hoàn   │
-│   GIẢM TRỪ                           │                         │
-│     - Bản thân / NPT                 │ (sticky khi scroll)     │
-│   THUẾ TNCN                          │                         │
-│     - Tạm nộp 10%                    │                         │
-│     - Còn phải nộp thêm              │                         │
-│   CHI PHÍ                            │                         │
-│     - Ads / Khác                     │                         │
-│   LỢI NHUẬN ⭐                        │                         │
-│                                      │                         │
-│ Cột bên phải có % so với HH gross    │                         │
-└─────────────────────────────────────┴────────────────────────┘
+┌────────────────────────────────────────────────────┐
+│ 📈 Hoa hồng Gross                  +XX,XXX,XXX đ    │ ← Card lớn, viền primary
+├────────────────────────────────────────────────────┤
+│ Giảm trừ                          −XX,XXX,XXX đ    │ ← Card thường
+│   └─ Giảm trừ bản thân                X,XXX,XXX đ  │
+│   └─ Giảm trừ N người phụ thuộc       X,XXX,XXX đ  │
+├────────────────────────────────────────────────────┤
+│ 🧾 Thuế phải nộp                   XX,XXX,XXX đ    │ ← Card lớn, viền warning
+│   └─ Thuế tạm nộp (Shopee KT 10%)     X,XXX,XXX đ  │
+│   └─ Thuế còn phải nộp thêm           X,XXX,XXX đ  │ (warning nếu > 0)
+├────────────────────────────────────────────────────┤
+│ 📢 Chi phí Facebook Ads            −X,XXX,XXX đ    │ ← Card lớn, viền destructive
+├════════════════════════════════════════════════════┤
+│ ✨ LỢI NHUẬN                       +XX,XXX,XXX đ    │ ← Card NỔI BẬT NHẤT
+└────────────────────────────────────────────────────┘
 ```
 
-## 🧮 Công thức
+### Hệ thống visual
 
-1. **Hoa hồng Net** = Gross × 90% (sau khi Shopee KT 10% vãng lai)
-2. **Tổng thu nhập** = HH Gross + Lương
-3. **Tổng giảm trừ** = (Bản thân 15.5tr + NPT × 6.2tr) × số tháng
-4. **TNTT** = Tổng thu nhập − Tổng giảm trừ
-5. **Thuế phải nộp** = TNTT/tháng → áp biểu lũy tiến 5 bậc → × số tháng
-6. **Thuế tạm nộp** = HH Gross × 10%
-7. **Còn phải nộp thêm** = max(0, Thuế phải nộp − Thuế tạm nộp)
-8. **Được hoàn** = max(0, Thuế tạm nộp − Thuế phải nộp)
-9. **Lợi nhuận** = HH Net + Lương − Tổng chi phí − Thuế còn phải nộp thêm
+- **Card lớn** (viền 2px màu): các mục chính (HH Gross / Thuế / Ads / Lợi nhuận)
+- **Card nhỏ** (viền 1px): giảm trừ (có sub-items)
+- **Sub-row** trong card: dòng con text nhỏ hơn
+- **Lợi nhuận**: card lớn nhất, có background tint, gradient nhẹ
 
-## ✨ Tính năng chi tiết
+## 🧮 Công thức (giữ nguyên)
 
-### Form input
-- 4 preset thời gian: **1 / 3 / 6 / 12 tháng** (dropdown)
-- Nhập số tiền theo tháng → tự nhân với số tháng
-- Nút **"Đặt lại"** về mặc định
-- Real-time: thay đổi input → kết quả cập nhật ngay
-
-### Bảng kết quả (bên trái)
-- 5 sections: Doanh thu / Giảm trừ / Thuế / Chi phí / Lợi nhuận
-- Cột % so với HH Gross (để dễ so sánh tỷ trọng)
-- Hàng "Lợi nhuận" highlight lớn với màu xanh nếu lãi, đỏ nếu lỗ
-
-### Bảng thuế theo bậc (bên phải)
-- Sticky position (luôn hiển thị khi scroll)
-- Mỗi bậc có:
-  - Khoảng thu nhập (Đến 10tr / 10-30tr...)
-  - Thuế suất (5% / 10% / 20%...)
-  - TN trong bậc + Thuế trong bậc
-  - **Progress bar** thể hiện tỷ trọng thuế của bậc đó
-- Cuối bảng tổng kết: Tổng thuế / Đã KT / Còn phải nộp hoặc Hoàn
-
-### Nút "Đặt lại"
-- Reset toàn bộ về giá trị mẫu (HH 30tr/tháng, Ads 5tr...)
-- Hữu ích khi thử nhiều scenario
-
-### Note hướng dẫn
-- Giải thích công thức ngắn gọn cuối trang
-- Lưu ý về các yếu tố ước tính (chưa tính BHXH...)
+1. **Thuế tạm nộp** = HH Gross × 10%
+2. **TNTT** = HH Gross + Lương − Giảm trừ
+3. **Thuế phải nộp** = TNTT áp biểu lũy tiến 5 bậc
+4. **Thuế còn phải nộp** = max(0, Thuế phải nộp − Thuế tạm nộp)
+5. **Lợi nhuận** = (HH Gross − 10% tạm KT) + Lương − Chi phí Ads − Thuế còn phải nộp thêm
 
 ## 📋 Triển khai
 
-### Bước 1: Upload 3 file
+### Bước 1: Upload 1 file
 
 ```
-app/(dashboard)/calculator/page.tsx              [FILE MỚI]
-components/calculator/calculator-form.tsx        [FILE MỚI]
-components/layout/sidebar.tsx                    [GHI ĐÈ - thêm nút Tính toán]
+components/calculator/calculator-form.tsx        ← GHI ĐÈ
 ```
-
-**KHÔNG cần SQL migration** — trang này là tính toán client-side hoàn toàn.
 
 ### Bước 2: Commit + Push
 
-Message: `Phase 8: Tax & profit calculator`
+Message: `Phase 8 Fix: Simplify calculator UI`
 
 ### Bước 3: Test
 
-1. Vào menu trái → kiểm tra có nút **"Tính toán"** dưới "Báo cáo"
-2. Click vào → trang hiển thị với 2 cột
-3. **Test case 1**: HH 30tr/tháng, 12 tháng, 1 NPT
-   - Tổng thuế phải nộp: **~4.98 triệu**
-   - Đã KT 10%: **36 triệu**
-   - **Được hoàn: ~31 triệu**
-4. **Test case 2**: HH 100tr/tháng, 12 tháng, 0 NPT
-   - Tổng thuế phải nộp: **~190 triệu**
-   - Đã KT 10%: **120 triệu**
-   - **Phải nộp thêm: ~70 triệu**
-5. Thay đổi input → kết quả thay đổi realtime
-6. Bấm "Đặt lại" → form về mặc định
+1. Vào `/calculator` → kiểm tra:
+   - Form chỉ có 5 input: HH Gross / Lương / Ads / Có giảm trừ bản thân / Số NPT
+   - **Không còn** dropdown phạm vi, không còn ô "Chi phí khác"
+2. Nhập HH Gross = 100,000,000 → kiểm tra:
+   - Thuế tạm nộp = 10,000,000 (10%)
+   - Giảm trừ bản thân = 15,500,000
+   - Các card hiển thị to, rõ
+3. Thay đổi số NPT → card "Giảm trừ" mở rộng thêm dòng phụ thuộc
+4. Card "Lợi nhuận" cuối cùng nổi bật với màu xanh (lãi) hoặc đỏ (lỗ)
 
-## 💡 Mẹo sử dụng
+## 💡 Điểm nhấn UI
 
-### Tính ngược: tôi muốn lãi X, cần HH bao nhiêu?
-Thử nhiều giá trị HH gross/tháng cho đến khi cột "Lợi nhuận" đạt mức mong muốn.
-
-### So sánh kịch bản: thuê hay không thuê NV?
-- Kịch bản 1: Chi phí khác = 0 → lợi nhuận
-- Kịch bản 2: Chi phí khác = 15tr (lương 1 NV) → lợi nhuận
-- So sánh chênh lệch
-
-### Tối ưu Ads
-Tăng/giảm Ads, xem điểm hòa vốn ở đâu.
-
-### Test luật thuế
-Thử HH cao để xem khi nào nhảy bậc thuế (>10tr/tháng → bậc 2, >30tr → bậc 3...)
+- 📈 **Icon to** (10x10) cho card lớn
+- 🎨 **Border 2px màu sắc** phân biệt loại (primary/warning/danger/success)
+- 💪 **Font bold** cho label và số tiền của card lớn (text-base/text-xl)
+- 🌈 **Background tint nhẹ** cho card lợi nhuận
+- ✨ **Sparkles icon** cho lợi nhuận → cảm giác "kết quả cuối cùng"
