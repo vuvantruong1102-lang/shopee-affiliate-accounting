@@ -6,9 +6,6 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import {
   ChevronLeft,
-  Pencil,
-  XCircle,
-  Receipt,
   Mail,
   Phone,
   CreditCard,
@@ -192,7 +189,7 @@ export default async function AffiliateDetailPage({ params, searchParams }: Page
     dependentCount: aff.dependent_count,
   });
 
-  // ============ All-time totals (cho modal) ============
+  // ============ All-time totals ============
   const { data: allTimeCash } = await supabase
     .from("cash_transactions")
     .select("amount")
@@ -273,28 +270,9 @@ export default async function AffiliateDetailPage({ params, searchParams }: Page
               full_name: aff.full_name,
               received_total: allTimeReceived,
               undeposited: allTimeReceived - allTimeTotalDeposited,
+              status: aff.status,
             }}
           />
-          <Button variant="outline" size="sm" asChild>
-            <Link href={`/tax/${aff.id}`}>
-              <Receipt className="w-3.5 h-3.5" />
-              Xem thuế chi tiết
-            </Link>
-          </Button>
-          <Button variant="outline" size="sm" asChild>
-            <Link href={`/affiliates/${aff.id}/edit`}>
-              <Pencil className="w-3.5 h-3.5" />
-              Chỉnh sửa
-            </Link>
-          </Button>
-          {aff.status !== "closed" && (
-            <Button variant="outline" size="sm" asChild>
-              <Link href={`/affiliates/${aff.id}/close`}>
-                <XCircle className="w-3.5 h-3.5" />
-                Đóng tài khoản
-              </Link>
-            </Button>
-          )}
         </div>
       </div>
 
