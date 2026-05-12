@@ -14,19 +14,31 @@ import {
   CreditCard,
   MapPin,
   Building2,
+  Activity,
 } from "lucide-react";
 import { formatCurrency, formatDate, cn } from "@/lib/utils";
 import { calculateYtdAdditionalTax } from "@/lib/ytd-tax";
 import { CommissionList } from "@/components/affiliates/commission-list";
 import { AffiliateActionsButton } from "@/components/affiliates/affiliate-actions-button";
+import { AffiliatePeriodSelector } from "@/components/affiliates/affiliate-period-selector";
+import { ActivityLog, type ActivityItem } from "@/components/affiliates/activity-log";
 import type { AffiliateAccount, Commission } from "@/types/database";
 
 interface PageProps {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ from?: string; to?: string; preset?: string }>;
 }
 
-export default async function AffiliateDetailPage({ params }: PageProps) {
+type Preset = "all" | "this_week" | "this_month" | "last_month" | "this_year" | "custom";
+
+export default async function AffiliateDetailPage({ params, searchParams }: PageProps) {
   const { id } = await params;
+  const search = await searchParams;
+  const preset = (search.preset ?? "all") as Preset;
+  const filterFrom = search.from;
+  const filterTo = search.to;
+  const hasFilter = preset !== "all" && filterFrom && filterTo;
+
   const supabase = await createClient();
 
   const { data: affiliate, error } = await supabase
@@ -40,13 +52,22 @@ export default async function AffiliateDetailPage({ params }: PageProps) {
 
   const aff = affiliate as AffiliateAccount;
 
-  const { data: commissionsData } = await supabase
+  // ============ COMMISSIONS - 2 versions: tất cả + lọc theo period ============
+  let commissionsQuery = supabase
     .from("commissions")
     .select("*, shopee_payments!commission_id(id)")
     .eq("account_id", id)
-    .eq("is_deleted", false)
+    .eq("is_deleted", false);
+
+  if (hasFilter) {
+    commissionsQuery = commissionsQuery
+      .gte("earned_date", filterFrom)
+      .lte("earned_date", filterTo);
+  }
+
+  const { data: commissionsData } = await commissionsQuery
     .order("earned_date", { ascending: false })
-    .limit(20);
+    .limit(100);
 
   type CommissionWithShopee = Commission & {
     shopee_payments?: { id: string }[];
@@ -66,6 +87,7 @@ export default async function AffiliateDetailPage({ params }: PageProps) {
     is_from_shopee: (c.shopee_payments?.length ?? 0) > 0,
   }));
 
+  // KPI - lọc theo period
   const totalGross = commissions.reduce((s, c) => s + c.gross_amount, 0);
   const totalTax = commissions.reduce((s, c) => s + c.tax_withheld, 0);
   const totalReceived = commissions
@@ -75,19 +97,84 @@ export default async function AffiliateDetailPage({ params }: PageProps) {
     .filter((c) => c.status === "pending")
     .reduce((s, c) => s + c.net_amount, 0);
 
-  const { data: bankIncome } = await supabase
+  // ============ DEPOSITS (bank_transactions) - lọc theo period ============
+  let depositsQuery = supabase
     .from("bank_transactions")
-    .select("amount")
+    .select("id, trans_date, amount, description, notes, bank_account_id")
     .eq("account_id", id)
     .eq("trans_type", "income")
     .eq("is_deleted", false);
 
-  const totalDeposited = (bankIncome ?? []).reduce(
-    (s, t) => s + Number(t.amount),
-    0,
+  if (hasFilter) {
+    depositsQuery = depositsQuery
+      .gte("trans_date", filterFrom)
+      .lte("trans_date", filterTo);
+  }
+
+  const { data: depositsData } = await depositsQuery
+    .order("trans_date", { ascending: false })
+    .limit(100);
+
+  // Lấy info bank cho mỗi deposit
+  const bankIds = Array.from(
+    new Set((depositsData ?? []).map((d) => d.bank_account_id).filter(Boolean)),
   );
+  const { data: banksData } = bankIds.length
+    ? await supabase
+        .from("bank_accounts")
+        .select("id, bank_name, account_number")
+        .in("id", bankIds)
+    : { data: [] };
+  const bankMap = new Map(
+    (banksData ?? []).map((b) => [b.id, b]),
+  );
+
+  const deposits = (depositsData ?? []).map((d) => ({
+    id: d.id,
+    date: d.trans_date,
+    amount: Number(d.amount),
+    description: d.description ?? null,
+    notes: d.notes ?? null,
+    bank_name: bankMap.get(d.bank_account_id)?.bank_name ?? "—",
+    account_number: bankMap.get(d.bank_account_id)?.account_number ?? "—",
+  }));
+
+  const totalDeposited = deposits.reduce((s, d) => s + d.amount, 0);
   const undeposited = totalReceived - totalDeposited;
 
+  // ============ Activity log gộp ============
+  const activityItems: ActivityItem[] = [
+    ...commissions.map((c) => ({
+      type: "commission" as const,
+      id: c.id,
+      date: c.earned_date,
+      gross: c.gross_amount,
+      tax: c.tax_withheld,
+      net: c.net_amount,
+      status: c.status as "received" | "pending",
+      received_date: c.received_date,
+      is_from_shopee: c.is_from_shopee,
+      description: c.description,
+    })),
+    ...deposits.map((d) => ({
+      type: "deposit" as const,
+      id: d.id,
+      date: d.date,
+      amount: d.amount,
+      bank_name: d.bank_name,
+      account_number: d.account_number,
+      description: d.description,
+      notes: d.notes,
+    })),
+  ].sort((a, b) => {
+    // Sắp xếp theo ngày, mới nhất trước
+    if (a.date < b.date) return 1;
+    if (a.date > b.date) return -1;
+    // Cùng ngày: deposit sau commission
+    return a.type === "deposit" ? 1 : -1;
+  });
+
+  // ============ YTD TAX - LUÔN tính theo cả năm (không filter) ============
   const now = new Date();
   const currentYear = now.getFullYear();
   const monthsElapsed = now.getMonth() + 1;
@@ -124,7 +211,7 @@ export default async function AffiliateDetailPage({ params }: PageProps) {
     dependentCount: aff.dependent_count,
   });
 
-  // ✨ FIX: filter is_deleted bằng "không phải true" (bao gồm null + false)
+  // Bank accounts cho modal nộp tiền
   const { data: companyBanksData } = await supabase
     .from("bank_accounts")
     .select("id, bank_name, account_number, account_holder")
@@ -137,6 +224,30 @@ export default async function AffiliateDetailPage({ params }: PageProps) {
     account_number: string;
     account_holder: string;
   }>;
+
+  // Tổng đã nộp tất cả thời gian (để modal nộp tiền tính undeposited đúng)
+  const { data: allTimeIncome } = await supabase
+    .from("bank_transactions")
+    .select("amount")
+    .eq("account_id", id)
+    .eq("trans_type", "income")
+    .eq("is_deleted", false);
+  const allTimeTotalDeposited = (allTimeIncome ?? []).reduce(
+    (s, t) => s + Number(t.amount),
+    0,
+  );
+
+  // Tổng đã nhận tất cả thời gian (để modal)
+  const { data: allTimeCommissions } = await supabase
+    .from("commissions")
+    .select("net_amount, status")
+    .eq("account_id", id)
+    .eq("is_deleted", false)
+    .eq("status", "received");
+  const allTimeReceived = (allTimeCommissions ?? []).reduce(
+    (s, c) => s + Number(c.net_amount),
+    0,
+  );
 
   const overDeposited = totalDeposited > totalReceived && totalReceived > 0;
 
@@ -158,6 +269,19 @@ export default async function AffiliateDetailPage({ params }: PageProps) {
     taxResultAny.additional ??
     0
   );
+
+  // Label khoảng thời gian cho hiển thị
+  const periodLabel = !hasFilter
+    ? "Tất cả thời gian"
+    : preset === "this_week"
+      ? "Tuần này"
+      : preset === "this_month"
+        ? "Tháng này"
+        : preset === "last_month"
+          ? "Tháng trước"
+          : preset === "this_year"
+            ? "Năm này"
+            : `${filterFrom} → ${filterTo}`;
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -182,8 +306,8 @@ export default async function AffiliateDetailPage({ params }: PageProps) {
             affiliate={{
               id: aff.id,
               full_name: aff.full_name,
-              received_total: totalReceived,
-              undeposited,
+              received_total: allTimeReceived,
+              undeposited: allTimeReceived - allTimeTotalDeposited,
             }}
             companyBanks={companyBanks}
           />
@@ -209,6 +333,26 @@ export default async function AffiliateDetailPage({ params }: PageProps) {
           )}
         </div>
       </div>
+
+      {/* PERIOD FILTER */}
+      <Card>
+        <CardContent className="p-4">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div className="flex items-center gap-2">
+              <Activity className="w-4 h-4 text-muted-foreground" />
+              <span className="text-sm font-medium">Lọc theo kỳ:</span>
+              <span className="text-xs text-muted-foreground">
+                Đang xem: <span className="font-semibold">{periodLabel}</span>
+              </span>
+            </div>
+            <AffiliatePeriodSelector
+              from={filterFrom}
+              to={filterTo}
+              preset={preset}
+            />
+          </div>
+        </CardContent>
+      </Card>
 
       <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
         <KpiCard
@@ -276,7 +420,7 @@ export default async function AffiliateDetailPage({ params }: PageProps) {
             <div>
               <CardTitle className="text-base">Thuế TNCN</CardTitle>
               <p className="text-xs text-muted-foreground mt-0.5">
-                YTD năm {currentYear} (tháng 1-{monthsElapsed})
+                YTD năm {currentYear} (tháng 1-{monthsElapsed}) · Luôn tính cả năm
               </p>
             </div>
           </CardHeader>
@@ -347,15 +491,32 @@ export default async function AffiliateDetailPage({ params }: PageProps) {
         </Card>
       </div>
 
+      {/* Hoa hồng gần đây */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Hoa hồng gần đây</CardTitle>
+          <CardTitle className="text-base">Hoa hồng</CardTitle>
           <p className="text-xs text-muted-foreground mt-0.5">
-            {commissions.length} đợt mới nhất
+            {commissions.length} đợt · {periodLabel}
           </p>
         </CardHeader>
         <CardContent className="p-0">
           <CommissionList affiliateId={aff.id} commissions={commissions} />
+        </CardContent>
+      </Card>
+
+      {/* HOẠT ĐỘNG - gộp commission + deposit */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <Activity className="w-4 h-4" />
+            Hoạt động gần đây
+          </CardTitle>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            {activityItems.length} hoạt động · {periodLabel} · gồm hoa hồng + nộp tiền
+          </p>
+        </CardHeader>
+        <CardContent className="p-0">
+          <ActivityLog items={activityItems} />
         </CardContent>
       </Card>
     </div>
