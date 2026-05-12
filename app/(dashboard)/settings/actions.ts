@@ -19,13 +19,13 @@ export async function createBankAccount(input: BankAccountInput) {
   if (!input.account_number.trim()) return { error: "Nhập số tài khoản" };
   if (!input.account_holder.trim()) return { error: "Nhập tên chủ tài khoản" };
 
+  // ✨ FIX: bỏ created_by vì cột này không tồn tại trong bảng bank_accounts
   const { error } = await supabase.from("bank_accounts").insert({
     bank_name: input.bank_name.trim(),
     account_number: input.account_number.trim(),
     account_holder: input.account_holder.trim(),
     notes: input.notes?.trim() || null,
     is_company: true,
-    created_by: user.id,
   });
 
   if (error) return { error: error.message };
