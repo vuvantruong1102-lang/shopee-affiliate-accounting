@@ -11,6 +11,7 @@ import {
   Receipt,
   CheckSquare,
   FileText,
+  Calculator,
   History,
   Database,
   Settings,
@@ -29,6 +30,7 @@ const NAV_GROUPS = [
       { href: "/tax", label: "Thuế TNCN", icon: Receipt },
       { href: "/reconciliation", label: "Đối soát Shopee", icon: CheckSquare },
       { href: "/reports", label: "Báo cáo", icon: FileText },
+      { href: "/calculator", label: "Tính toán", icon: Calculator },
     ],
   },
   {
@@ -46,7 +48,7 @@ interface Props {
   version?: string;
 }
 
-export function Sidebar({ appName = "Shopee Acc.", version = "v1.1" }: Props) {
+export function Sidebar({ appName = "Shopee Acc.", version = "v1.2" }: Props) {
   const pathname = usePathname();
 
   return (
