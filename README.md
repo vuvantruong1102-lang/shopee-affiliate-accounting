@@ -1,94 +1,118 @@
-# Phase 5 Fix — Sửa lỗi "Đã nộp vào công ty" luôn = 0
+# Phase 6 — Audit Log + Dashboard cải tiến + Backup
 
-## 🐛 Vấn đề
+## 🎯 Tính năng
 
-Trên trang chi tiết affiliate (`/affiliates/[id]`), KPI **"Đã nộp vào công ty"** luôn hiển thị **0đ** dù đã nộp tiền (ví dụ Trần Văn An nộp 70tr nhưng vẫn = 0).
+### 1. Audit Log (Lịch sử thay đổi)
+- Tự động ghi lại mọi hành động sửa/xóa giao dịch
+- Lưu: ai làm, lúc nào, sửa cái gì, từ giá trị cũ → mới
+- Trang `/audit-log` với filter theo bảng + hành động
+- **Immutable**: không ai có thể sửa/xóa audit log (RLS chặn)
 
-## 🔍 Nguyên nhân
+### 2. Dashboard cải tiến (`/dashboard`)
+- **Banner cảnh báo** ở đầu: hiển thị các vấn đề cần chú ý:
+  - 🔴 Affiliate đang cầm tiền > 50tr chưa nộp (severity: high)
+  - 🟠 Hoa hồng pending > 14 ngày chưa nhận (severity: high)
+  - 🟡 Đợt Shopee chưa đánh dấu nhận sau 5 ngày (severity: medium)
+- **4 KPI cards** clickable: Số dư tiền mặt, Số dư NH, DT tháng, Shopee chưa chuyển
+- **Biểu đồ 12 tháng gần đây**: doanh thu gross theo tháng
+- **Top 5 affiliate** tháng này (có progress bar)
+- 3 nút quick link: Audit log, Backup, Báo cáo
 
-Từ Phase 3 Fix, khi affiliate nộp tiền vào TK công ty → chỉ ghi vào `bank_transactions`, **không** ghi vào `cash_transactions` nữa. Nhưng RPC `get_affiliate_summary` cũ vẫn đếm `total_deposited` từ `cash_transactions` → luôn = 0.
-
-## ✅ Cách sửa (Phương án A)
-
-1. Thêm cột `account_id` vào `bank_transactions` để link giao dịch với affiliate
-2. **Backfill tự động**: chạy lệnh UPDATE để gán `account_id` cho các giao dịch cũ dựa trên `counterparty_name`
-3. Sửa RPC `get_affiliate_summary` để đếm từ `bank_transactions`
-4. Sửa `createDeposit` action để lưu `account_id` cho giao dịch mới
-5. Bonus: thay đổi UI "Đã nộp" — hiển thị "Còn X chưa nộp" nếu có
+### 3. Backup dữ liệu (`/backup`)
+- Hiển thị stats tổng quan
+- 2 nút download:
+  - **CSV**: gộp tất cả bảng vào 1 file (cho người dùng đọc trên Excel)
+  - **JSON**: dữ liệu thô, đầy đủ (cho mục đích khôi phục)
+- Có khuyến nghị về tần suất backup
 
 ## 📋 Các bước triển khai
 
 ### Bước 1: Chạy SQL migration
 
-Vào Supabase SQL Editor → New query → paste toàn bộ nội dung `supabase/migrations/20260512000001_fix_affiliate_summary.sql` → Run.
+Vào Supabase SQL Editor → paste toàn bộ `supabase/migrations/20260513000001_phase6_audit_dashboard.sql` → Run.
 
-Migration này sẽ:
-- Thêm cột `account_id` vào `bank_transactions`
-- Tự động backfill cho dữ liệu cũ (match theo `counterparty_name`)
-- Sửa RPC `get_affiliate_summary`
+Migration tạo:
+- Bảng `audit_log` + RLS
+- RPC `log_audit`, `get_dashboard_alerts`, `get_monthly_revenue_trend`, `get_top_affiliates`
 
-### Bước 2: Kiểm tra backfill
-
-Sau khi chạy migration, **kiểm tra xem giao dịch cũ đã được match đúng chưa**:
-
-```sql
-SELECT 
-  aa.full_name,
-  COUNT(bt.id) AS so_giao_dich,
-  SUM(bt.amount) AS tong_tien
-FROM public.affiliate_accounts aa
-LEFT JOIN public.bank_transactions bt 
-  ON bt.account_id = aa.id 
-  AND bt.trans_type = 'income'
-  AND bt.is_deleted = false
-GROUP BY aa.id, aa.full_name
-ORDER BY aa.full_name;
-```
-
-**Kỳ vọng**: Trần Văn An sẽ hiện 1 giao dịch, tổng = 70.000.000đ.
-
-Nếu **không match được** (ví dụ tên trên giao dịch không khớp tên affiliate), bạn cần update thủ công:
-
-```sql
--- Tìm ID của Trần Văn An
-SELECT id, full_name FROM affiliate_accounts WHERE full_name LIKE '%Trần Văn An%';
-
--- Tìm các giao dịch chưa được match
-SELECT id, trans_date, amount, counterparty_name, description 
-FROM bank_transactions 
-WHERE account_id IS NULL 
-  AND trans_type = 'income' 
-  AND is_deleted = false;
-
--- Gán thủ công (thay UUID vào)
-UPDATE bank_transactions 
-SET account_id = 'PASTE_UUID_AFFILIATE_HERE'
-WHERE id = 'PASTE_UUID_TRANSACTION_HERE';
-```
-
-### Bước 3: Upload 3 file code lên GitHub
+### Bước 2: Upload 11 file code
 
 ```
-types/database.ts                                    [GHI ĐÈ]
-app/(dashboard)/data-entry/actions.ts                [GHI ĐÈ]
-app/(dashboard)/affiliates/[id]/page.tsx             [GHI ĐÈ]
+types/audit.ts                                       [FILE MỚI]
+lib/audit-log.ts                                     [FILE MỚI]
+app/(dashboard)/cash-book/actions.ts                 [GHI ĐÈ - thêm audit log]
+app/(dashboard)/dashboard/page.tsx                   [GHI ĐÈ - dashboard mới]
+app/(dashboard)/audit-log/page.tsx                   [FILE MỚI]
+app/(dashboard)/backup/page.tsx                      [FILE MỚI]
+components/layout/sidebar.tsx                        [GHI ĐÈ - thêm 2 link mới]
+components/dashboard/dashboard-alerts.tsx            [FILE MỚI]
+components/dashboard/revenue-trend-chart.tsx         [FILE MỚI]
+components/dashboard/top-affiliates-list.tsx         [FILE MỚI]
+components/audit/audit-log-list.tsx                  [FILE MỚI]
+components/backup/backup-client.tsx                  [FILE MỚI]
 ```
 
-### Bước 4: Commit & Push
+⚠️ Đặt file đúng vị trí, không tạo `lib/components/...`
 
-Commit message: `Phase 5 Fix: Link bank deposits to affiliates`
+### Bước 3: Commit & Push
 
-### Bước 5: Test sau deploy
+Message: `Phase 6: Audit log + Dashboard alerts + Backup`
 
-1. Vào `/affiliates/[id]` của Trần Văn An
-2. KPI **"Đã nộp vào công ty"** phải hiển thị **70.000.000đ** (không còn 0)
-3. Subtitle phải hiện "Còn X chưa nộp" nếu đã thực nhận > đã nộp, hoặc "Đã nộp đầy đủ" nếu khớp
-4. Thử nộp thêm 1 giao dịch mới → kiểm tra số liệu tự cập nhật
+### Bước 4: Test theo thứ tự
 
-## 💡 Lưu ý
+**Test 1 - Audit log**:
+1. Vào Sổ tiền mặt → sửa 1 giao dịch (ví dụ đổi số tiền)
+2. Vào `/audit-log` → kỳ vọng thấy 1 dòng mới ghi lại thay đổi
+3. Filter theo bảng/hành động → hoạt động
 
-- **Dữ liệu cũ (trước Phase 5 Fix)**: chỉ match được nếu `counterparty_name` chính xác = tên affiliate (không phân biệt hoa thường, có trim). Nếu trước đây bạn để trống hoặc gõ tên khác → cần update thủ công.
+**Test 2 - Dashboard alerts**:
+1. Vào `/dashboard`
+2. Nếu có affiliate đang cầm tiền (received > deposited) → thấy alert
+3. Click vào alert → đi tới trang affiliate đó
 
-- **Giao dịch mới (sau Phase 5 Fix)**: tự động lưu `account_id` luôn → không cần lo nữa.
+**Test 3 - Chart + Top**:
+1. Trên dashboard, biểu đồ 12 tháng hiển thị (nếu có dữ liệu)
+2. Top affiliates hiển thị 5 người có doanh thu cao nhất tháng
 
-- **Cột "Đã rút"**: đã bị xóa khỏi UI vì bỏ module withdrawal từ Phase 3 Fix.
+**Test 4 - Backup**:
+1. Vào `/backup` → thấy stats
+2. Bấm **Tải CSV** → file mở được bằng Excel
+3. Bấm **Tải JSON** → file JSON đầy đủ data
+
+## 💡 Lưu ý quan trọng
+
+### Về Audit log
+
+- **Chỉ log update/delete** cho cash_transactions và bank_transactions ở phiên bản này. Có thể mở rộng cho commissions, affiliates ở phase sau nếu cần.
+- **Không log create** (vì create không gây mất dữ liệu, ít quan trọng hơn).
+- **Audit log không bao giờ bị xóa** → có thể tốn dung lượng sau vài năm. Cân nhắc thêm cron job xóa log > 2 năm trong tương lai.
+
+### Về Backup
+
+- **CSV gộp**: tất cả bảng trong 1 file, có header phân cách. Mở bằng Excel xem được nhưng không phải multi-sheet thực sự.
+- **JSON**: đầy đủ nhất, dùng để khôi phục dữ liệu nếu cần. Bạn có thể parse JSON bằng Python/Node để import lại vào DB.
+- **Khuyến nghị**: tải backup **đầu mỗi tháng**, lưu vào Google Drive với tên `backup-YYYY-MM-DD.json`.
+
+### Về Dashboard alerts
+
+- **Alerts tự cập nhật** khi vào trang (server-side render)
+- Nếu không có alerts → banner tự ẩn
+- Có thể expand/collapse banner để gọn
+
+## 🐛 Troubleshooting
+
+**Lỗi "function get_dashboard_alerts does not exist"?**
+→ Chạy lại SQL migration ở Bước 1.
+
+**Trang `/dashboard` báo lỗi khi load?**
+→ Có thể do dữ liệu cũ chưa có `account_id` trong bank_transactions. Đã chạy migration Phase 5 Fix chưa?
+
+**Audit log không hiện gì sau khi sửa giao dịch?**
+→ Kiểm tra Supabase: bảng `audit_log` có dòng mới không? Nếu không → có thể RLS policy chưa đúng. Chạy lại migration.
+
+## 🔮 Có thể làm tiếp ở Phase 7
+
+- Báo cáo tháng/quý/năm chính thức (P&L, theo affiliate, theo khoản mục)
+- Quản lý người phụ thuộc chi tiết (cho quyết toán thuế)
+- Mobile responsive (nếu hay dùng điện thoại)
+- Multi-year filter (xem dữ liệu năm trước)
