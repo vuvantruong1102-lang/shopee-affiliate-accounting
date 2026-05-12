@@ -5,19 +5,23 @@ import { Badge } from "@/components/ui/badge";
 import { createClient } from "@/lib/supabase/server";
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { ChevronLeft, Pencil, Phone, Mail, MapPin, CreditCard, FileText, TrendingUp, Wallet, Receipt } from "lucide-react";
-import { formatCurrency, formatDate } from "@/lib/utils";
-import { AffiliateDeleteButton } from "@/components/affiliates/affiliate-delete-button";
-import { CommissionList } from "@/components/affiliates/commission-list";
+import {
+  ChevronLeft,
+  Pencil,
+  XCircle,
+  Receipt,
+  Mail,
+  Phone,
+  CreditCard,
+  MapPin,
+  Building2,
+  FileText,
+} from "lucide-react";
+import { formatCurrency, formatDate, cn } from "@/lib/utils";
 import { calculateYtdAdditionalTax } from "@/lib/ytd-tax";
-import { DEPENDENT_DEDUCTION_MONTHLY, PERSONAL_DEDUCTION_MONTHLY } from "@/lib/tax-calculator";
-import type { AffiliateAccount, AffiliateStatus, Commission, AffiliateSummary } from "@/types/database";
-
-const STATUS_LABEL: Record<AffiliateStatus, { label: string; variant: "success" | "warning" | "neutral" }> = {
-  active: { label: "Đang hoạt động", variant: "success" },
-  paused: { label: "Tạm dừng", variant: "warning" },
-  closed: { label: "Đã đóng", variant: "neutral" },
-};
+import { CommissionList } from "@/components/affiliates/commission-list";
+import { AffiliateActionsButton } from "@/components/affiliates/affiliate-actions-button";
+import type { AffiliateAccount, Commission } from "@/types/database";
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -27,28 +31,70 @@ export default async function AffiliateDetailPage({ params }: PageProps) {
   const { id } = await params;
   const supabase = await createClient();
 
-  const { data: affiliate } = await supabase
+  // 1. Lấy affiliate
+  const { data: affiliate, error } = await supabase
     .from("affiliate_accounts")
     .select("*")
     .eq("id", id)
+    .eq("is_deleted", false)
     .single();
 
-  if (!affiliate) notFound();
-  const a = affiliate as AffiliateAccount;
+  if (error || !affiliate) notFound();
 
-  const { data: summaryData } = await supabase
-    .rpc("get_affiliate_summary", { p_account_id: id })
-    .single();
-  const summary = (summaryData ?? {
-    total_gross: 0,
-    total_tax_withheld: 0,
-    total_net: 0,
-    received_net: 0,
-    pending_net: 0,
-    total_withdrawn: 0,
-    total_deposited: 0,
-  }) as AffiliateSummary;
+  const aff = affiliate as AffiliateAccount;
 
+  // 2. Lấy commissions + check link với shopee_payment
+  const { data: commissionsData } = await supabase
+    .from("commissions")
+    .select("*, shopee_payments!commission_id(id)")
+    .eq("account_id", id)
+    .eq("is_deleted", false)
+    .order("earned_date", { ascending: false })
+    .limit(20);
+
+  type CommissionWithShopee = Commission & {
+    shopee_payments?: { id: string }[];
+  };
+
+  const commissions = ((commissionsData ?? []) as CommissionWithShopee[]).map((c) => ({
+    id: c.id,
+    earned_date: c.earned_date,
+    period_month: c.period_month,
+    period_year: c.period_year,
+    gross_amount: Number(c.gross_amount),
+    tax_withheld: Number(c.tax_withheld),
+    net_amount: Number(c.net_amount),
+    status: c.status,
+    received_date: c.received_date,
+    description: c.description,
+    is_from_shopee: (c.shopee_payments?.length ?? 0) > 0,
+  }));
+
+  // 3. Tổng hợp KPI
+  const totalGross = commissions.reduce((s, c) => s + c.gross_amount, 0);
+  const totalTax = commissions.reduce((s, c) => s + c.tax_withheld, 0);
+  const totalReceived = commissions
+    .filter((c) => c.status === "received")
+    .reduce((s, c) => s + c.net_amount, 0);
+  const totalPending = commissions
+    .filter((c) => c.status === "pending")
+    .reduce((s, c) => s + c.net_amount, 0);
+
+  // Đã nộp vào công ty = sum bank_transactions income với account_id = aff.id
+  const { data: bankIncome } = await supabase
+    .from("bank_transactions")
+    .select("amount")
+    .eq("account_id", id)
+    .eq("trans_type", "income")
+    .eq("is_deleted", false);
+
+  const totalDeposited = (bankIncome ?? []).reduce(
+    (s, t) => s + Number(t.amount),
+    0,
+  );
+  const undeposited = totalReceived - totalDeposited;
+
+  // 4. YTD tax
   const now = new Date();
   const currentYear = now.getFullYear();
   const monthsElapsed = now.getMonth() + 1;
@@ -60,38 +106,52 @@ export default async function AffiliateDetailPage({ params }: PageProps) {
     .eq("is_deleted", false)
     .eq("period_year", currentYear);
 
-  const ytdShopeeGross =
-    ytdCommissions?.reduce((s, c) => s + Number(c.gross_amount), 0) ?? 0;
-  const ytdShopeeTaxWithheld =
-    ytdCommissions?.reduce((s, c) => s + Number(c.tax_withheld), 0) ?? 0;
+  const ytdGross = (ytdCommissions ?? []).reduce(
+    (s, c) => s + Number(c.gross_amount),
+    0,
+  );
+  const ytdTaxWithheld = (ytdCommissions ?? []).reduce(
+    (s, c) => s + Number(c.tax_withheld),
+    0,
+  );
 
-  const ytdTax = calculateYtdAdditionalTax({
+  const taxResult = calculateYtdAdditionalTax({
     monthsElapsed,
-    monthlySalaryGross: a.has_company_salary ? Number(a.monthly_salary_gross) : 0,
-    monthlySalaryTaxWithheld: a.has_company_salary
-      ? Number(a.monthly_salary_tax_withheld)
+    monthlySalaryGross: aff.has_company_salary ? Number(aff.monthly_salary_gross) : 0,
+    monthlySalaryTaxWithheld: aff.has_company_salary
+      ? Number(aff.monthly_salary_tax_withheld)
       : 0,
-    ytdShopeeGross,
-    ytdShopeeTaxWithheld,
-    hasPersonalDeduction: a.has_personal_deduction,
-    dependentCount: a.dependent_count,
+    ytdShopeeGross: ytdGross,
+    ytdShopeeTaxWithheld: ytdTaxWithheld,
+    hasPersonalDeduction: aff.has_personal_deduction,
+    dependentCount: aff.dependent_count,
   });
 
-  const { data: commissions } = await supabase
-    .from("commissions")
-    .select("*")
-    .eq("account_id", id)
+  // 5. Lấy TK công ty cho modal nộp tiền
+  const { data: companyBanksData } = await supabase
+    .from("bank_accounts")
+    .select("id, bank_name, account_number, account_holder")
+    .eq("is_company", true)
     .eq("is_deleted", false)
-    .order("earned_date", { ascending: false })
-    .limit(20);
+    .order("bank_name");
 
-  const status = STATUS_LABEL[a.status];
+  const companyBanks = (companyBanksData ?? []) as Array<{
+    id: string;
+    bank_name: string;
+    account_number: string;
+    account_holder: string;
+  }>;
 
-  // Tính chênh lệch: số tiền chưa nộp = received_net - total_deposited
-  const undeposited = Number(summary.received_net) - Number(summary.total_deposited);
+  // Cảnh báo nếu nộp > thực nhận
+  const overDeposited = totalDeposited > totalReceived && totalReceived > 0;
+
+  const statusLabel =
+    aff.status === "active" ? "Đang hoạt động" :
+    aff.status === "paused" ? "Tạm dừng" : "Đã đóng";
 
   return (
-    <div className="space-y-6 animate-fade-in max-w-5xl">
+    <div className="space-y-6 animate-fade-in">
+      {/* Back link */}
       <div className="flex items-center gap-2 -mb-2">
         <Button variant="ghost" size="sm" asChild>
           <Link href="/affiliates">
@@ -101,268 +161,235 @@ export default async function AffiliateDetailPage({ params }: PageProps) {
         </Button>
       </div>
 
-      <PageHeader
-        title={a.full_name}
-        description={`${status.label} • Bắt đầu ${formatDate(a.start_date)}`}
-        action={
-          <div className="flex items-center gap-2">
-            <AffiliateDeleteButton id={a.id} name={a.full_name} />
-            <Button variant="outline" asChild>
-              <Link href={`/tax/${a.id}`}>
-                <Receipt className="w-4 h-4" />
-                Xem thuế chi tiết
+      {/* Header với actions */}
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <h1 className="text-2xl font-bold">{aff.full_name}</h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            {statusLabel} · Bắt đầu {formatDate(aff.start_date)}
+          </p>
+        </div>
+        <div className="flex items-center gap-2 flex-wrap">
+          <AffiliateActionsButton
+            affiliate={{
+              id: aff.id,
+              full_name: aff.full_name,
+              received_total: totalReceived,
+              undeposited,
+            }}
+            companyBanks={companyBanks}
+          />
+          <Button variant="outline" size="sm" asChild>
+            <Link href={`/tax/${aff.id}`}>
+              <Receipt className="w-3.5 h-3.5" />
+              Xem thuế chi tiết
+            </Link>
+          </Button>
+          <Button variant="outline" size="sm" asChild>
+            <Link href={`/affiliates/${aff.id}/edit`}>
+              <Pencil className="w-3.5 h-3.5" />
+              Chỉnh sửa
+            </Link>
+          </Button>
+          {aff.status !== "closed" && (
+            <Button variant="outline" size="sm" asChild>
+              <Link href={`/affiliates/${aff.id}/close`}>
+                <XCircle className="w-3.5 h-3.5" />
+                Đóng tài khoản
               </Link>
             </Button>
-            <Button asChild>
-              <Link href={`/affiliates/${a.id}/edit`}>
-                <Pencil className="w-4 h-4" />
-                Chỉnh sửa
-              </Link>
-            </Button>
-          </div>
-        }
-      />
+          )}
+        </div>
+      </div>
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <StatCard
+      {/* 4 KPI */}
+      <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
+        <KpiCard
           label="Tổng hoa hồng"
-          value={formatCurrency(summary.total_gross)}
-          subtitle={`${formatCurrency(summary.total_tax_withheld)} thuế đã khấu trừ`}
-          icon={TrendingUp}
+          value={formatCurrency(totalGross)}
+          subtitle={`${formatCurrency(totalTax)} thuế đã KT`}
         />
-        <StatCard
+        <KpiCard
           label="Đã thực nhận"
-          value={formatCurrency(summary.received_net)}
+          value={formatCurrency(totalReceived)}
           subtitle="Đã vào TK ngân hàng cá nhân"
-          icon={Wallet}
           variant="success"
+          warning={overDeposited}
+          warningText="Đã nộp vượt số đã nhận"
         />
-        <StatCard
+        <KpiCard
           label="Chưa nhận"
-          value={formatCurrency(summary.pending_net)}
+          value={formatCurrency(totalPending)}
           subtitle="Đang chờ Shopee chuyển"
-          icon={TrendingUp}
-          variant={summary.pending_net > 0 ? "warning" : "default"}
+          variant="warning"
         />
-        <StatCard
+        <KpiCard
           label="Đã nộp vào công ty"
-          value={formatCurrency(summary.total_deposited)}
+          value={formatCurrency(totalDeposited)}
           subtitle={
             undeposited > 0
               ? `Còn ${formatCurrency(undeposited)} chưa nộp`
-              : "Đã nộp đầy đủ"
+              : undeposited < 0
+                ? `Vượt ${formatCurrency(Math.abs(undeposited))}`
+                : "Đã nộp đủ"
           }
-          icon={Wallet}
-          variant={undeposited > 0 ? "warning" : "success"}
+          variant={undeposited > 1_000_000 ? "warning" : "default"}
         />
       </div>
 
-      <div className="grid gap-4 md:grid-cols-3">
-        <Card className="md:col-span-2">
+      {/* Thông tin liên hệ + Thuế TNCN - 2 cột compact */}
+      <div className="grid gap-4 lg:grid-cols-2">
+        {/* THÔNG TIN LIÊN HỆ - layout compact */}
+        <Card>
           <CardHeader>
             <CardTitle className="text-base">Thông tin liên hệ</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-3 text-sm">
-            <InfoRow icon={Mail} label="Email">
-              {a.email}
-            </InfoRow>
-            {a.phone && (
-              <InfoRow icon={Phone} label="Điện thoại">
-                {a.phone}
-              </InfoRow>
-            )}
-            {a.cccd && (
-              <InfoRow icon={FileText} label="CCCD/CMND">
-                <span className="font-mono">{a.cccd}</span>
-              </InfoRow>
-            )}
-            {a.tax_code && (
-              <InfoRow icon={FileText} label="MST cá nhân">
-                <span className="font-mono">{a.tax_code}</span>
-              </InfoRow>
-            )}
-            {a.address && (
-              <InfoRow icon={MapPin} label="Địa chỉ">
-                {a.address}
-              </InfoRow>
-            )}
-            {a.bank_name && (
-              <InfoRow icon={CreditCard} label="Tài khoản nhận tiền">
-                <div>
-                  <div>{a.bank_name}</div>
-                  {a.bank_account_number && (
-                    <div className="font-mono text-xs text-muted-foreground">
-                      {a.bank_account_number}
-                      {a.bank_account_holder && ` — ${a.bank_account_holder}`}
-                    </div>
-                  )}
-                </div>
-              </InfoRow>
-            )}
+          <CardContent className="p-0">
+            <InfoRow icon={Mail} label="Email" value={aff.email} />
+            <InfoRow icon={Phone} label="Điện thoại" value={aff.phone} />
+            <InfoRow icon={CreditCard} label="CCCD/CMND" value={aff.cccd} mono />
+            <InfoRow icon={FileText} label="MST cá nhân" value={aff.tax_id} mono />
+            <InfoRow icon={MapPin} label="Địa chỉ" value={aff.address} />
+            <InfoRow
+              icon={Building2}
+              label="TK nhận tiền"
+              value={
+                aff.bank_name
+                  ? `${aff.bank_name} · ${aff.bank_account_number ?? ""}`
+                  : null
+              }
+              extra={aff.bank_account_holder ?? undefined}
+              isLast
+            />
           </CardContent>
         </Card>
 
+        {/* THUẾ TNCN - layout compact */}
         <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Thuế TNCN</CardTitle>
-            <p className="text-xs text-muted-foreground">
-              YTD năm {currentYear} (tháng 1-{monthsElapsed})
-            </p>
+          <CardHeader className="flex flex-row items-start justify-between space-y-0">
+            <div>
+              <CardTitle className="text-base">Thuế TNCN</CardTitle>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                YTD năm {currentYear} (tháng 1-{monthsElapsed})
+              </p>
+            </div>
           </CardHeader>
-          <CardContent className="space-y-3 text-sm">
-            <div>
-              <div className="text-xs text-muted-foreground">Giảm trừ bản thân</div>
-              <div className="font-medium mt-0.5">
-                {a.has_personal_deduction
-                  ? `Có (${(PERSONAL_DEDUCTION_MONTHLY / 1_000_000).toFixed(1)}tr/tháng)`
-                  : "Không"}
-              </div>
-            </div>
-            <div>
-              <div className="text-xs text-muted-foreground">Người phụ thuộc</div>
-              <div className="font-medium mt-0.5">
-                {a.dependent_count} người
-                {a.dependent_count > 0 && (
-                  <span className="text-xs text-muted-foreground ml-1">
-                    ({formatCurrency(a.dependent_count * DEPENDENT_DEDUCTION_MONTHLY)}/tháng)
-                  </span>
-                )}
-              </div>
-            </div>
-            <div>
-              <div className="text-xs text-muted-foreground">Shopee đã khấu trừ</div>
-              <div className="font-medium mt-0.5 tabular-nums">
-                {formatCurrency(ytdShopeeTaxWithheld)}
-              </div>
-            </div>
+          <CardContent className="p-0">
+            <InfoRow
+              label="Giảm trừ bản thân"
+              value={aff.has_personal_deduction ? "Có (15.5tr/tháng)" : "Không"}
+              compact
+            />
+            <InfoRow
+              label="Người phụ thuộc"
+              value={`${aff.dependent_count} người`}
+              compact
+            />
+            {aff.has_company_salary && (
+              <InfoRow
+                label="Lương công ty"
+                value={`${formatCurrency(aff.monthly_salary_gross)}/tháng`}
+                compact
+              />
+            )}
+            <InfoRow
+              label="Shopee đã khấu trừ"
+              value={formatCurrency(taxResult.ytdShopeeTaxWithheld)}
+              compact
+            />
+            <InfoRow
+              label="Tổng đã KT"
+              value={formatCurrency(taxResult.ytdTaxWithheldTotal)}
+              compact
+            />
 
-            <div className="pt-3 border-t border-border">
-              <div className="text-xs text-muted-foreground">
-                Số thuế TNCN cần phải nộp thêm
+            {/* Highlight phần phải nộp */}
+            <div className="px-6 py-4 border-t-2 border-border bg-muted/30">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs font-medium">Số thuế cần nộp thêm</p>
+                  <p className="text-[10px] text-muted-foreground mt-0.5">
+                    Lũy tiến 5 bậc (Luật 2026)
+                  </p>
+                </div>
+                <div className="text-right">
+                  <p
+                    className={cn(
+                      "text-lg font-bold tabular-nums",
+                      taxResult.additionalTaxNeeded > 0 ? "text-warning" : "text-success",
+                    )}
+                  >
+                    {taxResult.additionalTaxNeeded > 0
+                      ? formatCurrency(taxResult.additionalTaxNeeded)
+                      : formatCurrency(Math.abs(taxResult.additionalTaxNeeded))}
+                  </p>
+                  <p className="text-[10px] text-muted-foreground">
+                    {taxResult.additionalTaxNeeded > 0
+                      ? "Phải nộp thêm"
+                      : taxResult.additionalTaxNeeded < 0
+                        ? "Được hoàn"
+                        : "Đã đủ"}
+                  </p>
+                </div>
               </div>
-              <div className="text-[10px] text-muted-foreground mt-0.5 mb-1">
-                Tính theo bậc thu nhập lũy tiến (5 bậc - Luật 2026)
-              </div>
-              <TaxAdditionalDisplay ytdTax={ytdTax} hasSalary={a.has_company_salary} />
             </div>
           </CardContent>
         </Card>
       </div>
 
-      {a.notes && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Ghi chú</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-sm whitespace-pre-wrap">{a.notes}</p>
-          </CardContent>
-        </Card>
-      )}
-
+      {/* Hoa hồng gần đây */}
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <div>
-            <CardTitle className="text-base">Hoa hồng gần đây</CardTitle>
-            <p className="text-xs text-muted-foreground mt-1">
-              20 đợt mới nhất
-            </p>
-          </div>
-          <Button variant="outline" size="sm" asChild>
-            <Link href={`/data-entry/commission?account=${a.id}`}>
-              <Mail className="w-3.5 h-3.5" />
-              Thêm hoa hồng
-            </Link>
-          </Button>
+        <CardHeader>
+          <CardTitle className="text-base">Hoa hồng gần đây</CardTitle>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            {commissions.length} đợt mới nhất
+          </p>
         </CardHeader>
         <CardContent className="p-0">
-          <CommissionList data={(commissions ?? []) as Commission[]} />
+          <CommissionList affiliateId={aff.id} commissions={commissions} />
         </CardContent>
       </Card>
     </div>
   );
 }
 
-function TaxAdditionalDisplay({
-  ytdTax,
-  hasSalary,
-}: {
-  ytdTax: ReturnType<typeof calculateYtdAdditionalTax>;
-  hasSalary: boolean;
-}) {
-  if (ytdTax.status === "no_data") {
-    return (
-      <div className="text-sm text-muted-foreground italic mt-1">
-        Chưa có dữ liệu thu nhập
-      </div>
-    );
-  }
-  if (ytdTax.status === "even") {
-    return (
-      <div className="mt-1">
-        <div className="font-medium tabular-nums text-sm">~0 đ</div>
-        <div className="text-xs text-muted-foreground mt-0.5">
-          Đã đóng đủ thuế
-        </div>
-      </div>
-    );
-  }
-  if (ytdTax.status === "refund") {
-    return (
-      <div className="mt-1">
-        <div className="font-medium tabular-nums text-sm text-success">
-          {formatCurrency(Math.abs(ytdTax.taxAdditional))}
-        </div>
-        <div className="text-xs text-success mt-0.5">
-          Được hoàn (đã khấu trừ thừa)
-        </div>
-        {!hasSalary && (
-          <div className="text-[10px] text-muted-foreground mt-1">
-            Vì thu nhập chưa vượt mức giảm trừ
-          </div>
-        )}
-      </div>
-    );
-  }
-  return (
-    <div className="mt-1">
-      <div className="font-medium tabular-nums text-sm text-warning">
-        {formatCurrency(ytdTax.taxAdditional)}
-      </div>
-      <div className="text-xs text-warning mt-0.5">Phải nộp thêm</div>
-    </div>
-  );
-}
-
-function StatCard({
+// ============================================================================
+// COMPONENTS
+// ============================================================================
+function KpiCard({
   label,
   value,
   subtitle,
-  icon: Icon,
   variant = "default",
+  warning,
+  warningText,
 }: {
   label: string;
   value: string;
   subtitle: string;
-  icon: React.ComponentType<{ className?: string }>;
   variant?: "default" | "success" | "warning";
+  warning?: boolean;
+  warningText?: string;
 }) {
-  const iconColor = {
-    default: "text-muted-foreground",
+  const valueColor = {
+    default: "",
     success: "text-success",
     warning: "text-warning",
   }[variant];
+
   return (
     <Card>
       <CardContent className="p-5">
-        <div className="flex items-start justify-between">
-          <div className="min-w-0 flex-1">
-            <p className="text-xs text-muted-foreground font-medium">{label}</p>
-            <p className="text-xl font-semibold mt-2 tabular-nums tracking-tight">{value}</p>
-            <p className="text-xs text-muted-foreground mt-1.5">{subtitle}</p>
-          </div>
-          <Icon className={`w-4 h-4 ${iconColor} flex-shrink-0`} />
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-xs text-muted-foreground font-medium">{label}</p>
+          {warning && (
+            <Badge variant="destructive" className="text-[9px]" title={warningText}>
+              !
+            </Badge>
+          )}
         </div>
+        <p className={cn("text-xl font-bold mt-2 tabular-nums", valueColor)}>{value}</p>
+        <p className="text-xs text-muted-foreground mt-1.5 truncate">{subtitle}</p>
       </CardContent>
     </Card>
   );
@@ -371,18 +398,37 @@ function StatCard({
 function InfoRow({
   icon: Icon,
   label,
-  children,
+  value,
+  extra,
+  mono,
+  isLast,
+  compact,
 }: {
-  icon: React.ComponentType<{ className?: string }>;
+  icon?: React.ComponentType<{ className?: string }>;
   label: string;
-  children: React.ReactNode;
+  value: string | null | undefined;
+  extra?: string;
+  mono?: boolean;
+  isLast?: boolean;
+  compact?: boolean;
 }) {
   return (
-    <div className="flex items-start gap-3">
-      <Icon className="w-4 h-4 text-muted-foreground mt-0.5 flex-shrink-0" />
-      <div className="flex-1 min-w-0">
-        <div className="text-xs text-muted-foreground">{label}</div>
-        <div className="mt-0.5">{children}</div>
+    <div
+      className={cn(
+        "grid grid-cols-[110px_1fr] items-baseline gap-3 px-6",
+        compact ? "py-2" : "py-2.5",
+        !isLast && "border-b border-border",
+      )}
+    >
+      <div className="flex items-center gap-2 text-xs text-muted-foreground font-medium">
+        {Icon && <Icon className="w-3.5 h-3.5 flex-shrink-0" />}
+        <span>{label}</span>
+      </div>
+      <div className={cn("text-sm break-words", mono && "font-mono tabular-nums")}>
+        {value || <span className="text-muted-foreground italic">—</span>}
+        {extra && (
+          <div className="text-xs text-muted-foreground mt-0.5">{extra}</div>
+        )}
       </div>
     </div>
   );
