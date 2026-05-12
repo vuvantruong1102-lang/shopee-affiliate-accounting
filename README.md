@@ -1,90 +1,84 @@
-# Phase 6 Fix 3 — Thêm ô "Chi phí Facebook Ads" vào dashboard
+# Phase 6 Fix 2 — Sửa lại layout Dashboard chi tiết
 
-## 🎯 Thay đổi
-
-Thêm **ô KPI nhỏ thứ 7** ở cuối hàng nhỏ: **"Chi phí Facebook Ads"**.
+## 🎨 Layout mới
 
 ```
-Hàng 2 (7 ô nhỏ):
-[DT Gross] [Thuế PN] [Thuế đã nộp] [Thuế thêm] [TM] [NH] [Chi phí FB Ads ✨]
+┌─────────────────────────────────────────────────────────────┐
+│ Hàng 1: 3 ô LỚN                                              │
+│ [DT tháng NET] [Shopee đã chuyển] [Shopee chưa chuyển]      │
+├─────────────────────────────────────────────────────────────┤
+│ Hàng 2: 6 ô nhỏ                                              │
+│ [DT Gross] [Thuế phải nộp] [Thuế đã nộp]                    │
+│ [Thuế cần nộp thêm] [TM] [NH]                                │
+├──────────────────────────────────┬──────────────────────────┤
+│ Chart 12 tháng                   │ ⚠️ Cảnh báo               │
+│                                  │                          │
+│ ───────────────────────          ├──────────────────────────┤
+│ Hoạt động gần đây                │ 🏆 Top affiliate (NET)   │
+│ (recent commissions feed)        │                          │
+└──────────────────────────────────┴──────────────────────────┘
 ```
 
-## 🧠 Logic tính
+## ✨ Tính năng mới/thay đổi
 
-Query tổng `amount` của các giao dịch `expense` trong tháng này, có `expense_category_id` thuộc danh sách category match theo tên:
+### Hàng KPI
 
-- `Facebook Ads`
-- `FB Ads` / `fbads`
-- `Marketing`
-- `Quảng cáo` / `Quang cao`
-- `Ads` (chuẩn xác hoặc có khoảng trắng xung quanh)
+| Vị trí | Tên | Logic |
+|---|---|---|
+| Lớn 1 | **Doanh thu tháng NET** | `total_net` của hoa hồng tháng này |
+| Lớn 2 | **Shopee đã chuyển** | Tổng `total_net` các đợt Shopee đã đánh dấu received trong tháng |
+| Lớn 3 | **Shopee chưa chuyển** | Tổng `total_net` các đợt chưa received (tất cả thời gian) |
+| Nhỏ 1 | DT tháng Gross | `total_gross` của hoa hồng tháng này |
+| Nhỏ 2 | **Tổng thuế phải nộp** | Sum `taxPayableYtd` tất cả affiliate (theo luật lũy tiến) |
+| Nhỏ 3 | Thuế đã nộp | Sum `taxWithheldYtd` |
+| Nhỏ 4 | Thuế cần nộp thêm | Sum `taxAdditional > 0` |
+| Nhỏ 5 | Số dư tiền mặt | Như cũ |
+| Nhỏ 6 | Số dư ngân hàng | Như cũ |
 
-Tính từ **CẢ** `bank_transactions` + `cash_transactions`. Lấy giao dịch trong khoảng `[đầu tháng → cuối tháng]` hiện tại.
+### Hoạt động gần đây (mới)
+
+- Hiển thị 8 đợt hoa hồng được ghi nhận **mới nhất** (sort theo `created_at`)
+- Mỗi dòng: tên affiliate, số tiền net (+ gross), ngày HH, "vừa xong / X phút trước"
+- Click vào → đi đến trang affiliate đó
+
+### Top affiliate theo NET (đổi từ Gross)
+
+- RPC `get_top_affiliates` đã sửa: sort theo `SUM(net_amount)` thay vì gross
+- Hiển thị giá trị net trong list (giá trị thực affiliate nhận)
 
 ## 📋 Triển khai
 
 ### Bước 1: Chạy SQL
 
-Vào Supabase SQL Editor → paste `supabase/migrations/20260513000004_ads_expense_kpi.sql` → Run.
+Vào Supabase SQL Editor → paste `supabase/migrations/20260513000003_top_affiliates_by_net.sql` → Run.
 
-Migration sẽ:
-1. Tạo RPC `get_ads_expense_this_month`
-2. **Tự động tạo category "Facebook Ads"** nếu chưa có category nào tương tự
-
-### Bước 2: Kiểm tra category
-
-Sau khi chạy SQL, kiểm tra danh sách category:
-
-```sql
-SELECT id, name, type, is_active 
-FROM expense_categories 
-WHERE is_active = true 
-ORDER BY display_order;
-```
-
-Bạn nên thấy:
-- Có category tên "Facebook Ads", "Marketing", hoặc tương tự
-- Nếu chưa có → migration đã tự tạo "Facebook Ads"
-
-### Bước 3: Upload 1 file code
+### Bước 2: Upload 3 file
 
 ```
-app/(dashboard)/dashboard/page.tsx                ← GHI ĐÈ
+app/(dashboard)/dashboard/page.tsx                         ← GHI ĐÈ
+components/dashboard/top-affiliates-list.tsx              ← GHI ĐÈ
+components/dashboard/recent-commissions-feed.tsx          ← MỚI
 ```
 
-### Bước 4: Commit + Push
+### Bước 3: Commit + Push
 
-Message: `Phase 6 Fix 3: Add Facebook Ads expense KPI`
+Message: `Phase 6 Fix 2: Dashboard 3+6 KPI layout + activity feed + net top`
 
-### Bước 5: Test
+### Bước 4: Test
 
-1. Vào `/dashboard` → kiểm tra hàng KPI nhỏ có **7 ô** (cuối là Facebook Ads)
-2. Vào **Nhập liệu → Chi tiêu** → thêm 1 chi phí thử nghiệm:
-   - Khoản mục: chọn "Facebook Ads" (hoặc category tương tự)
-   - Số tiền: ví dụ 5.000.000đ
-   - Nguồn: TK ngân hàng
-3. Refresh dashboard → KPI "Chi phí Facebook Ads" phải hiện 5.000.000đ
-4. Subtitle: "1 giao dịch tháng này"
+1. **Hàng 1**: 3 ô lớn ở đầu — DT tháng NET hiển thị **đã trừ thuế** (nhỏ hơn gross)
+2. **Hàng 2**: 6 ô nhỏ theo đúng thứ tự
+3. **Hoạt động gần đây**: thử thêm 1 hoa hồng → refresh → thấy nó xuất hiện ở đầu list
+4. **Top affiliate**: số tiền hiển thị bây giờ là NET (không phải gross)
 
 ## 💡 Lưu ý
 
-### Match nhiều category
+### Net vs Gross
+- **Gross** = số trước thuế (số Shopee báo)
+- **Net** = sau khi Shopee khấu trừ 10% PIT (số thực vào TK affiliate)
+- KPI DT tháng NET và Top affiliate đều dùng net → phản ánh **số tiền thực** mà công ty/affiliate nhận được
 
-RPC tự gom các category có tên chứa "Marketing" / "Facebook Ads" / "Ads" / "Quảng cáo". 
-
-Nếu bạn có **nhiều category** cùng loại (vd: "Facebook Ads", "Google Ads", "Marketing chung") → tất cả sẽ được tính chung vào KPI này.
-
-### Phân biệt với category khác
-
-Nếu bạn muốn **chỉ riêng Facebook Ads** (không gộp Marketing chung), hãy:
-1. Tạo category tên cụ thể: "Facebook Ads"  
-2. Khi nhập chi tiêu, chọn đúng category này
-3. Đổi RPC để chỉ match `name = 'Facebook Ads'` exact (báo tôi nếu cần)
-
-### Subtitle khi chưa có category match
-
-Nếu `category_count = 0` → subtitle hiện "Chưa có khoản mục Ads" để bạn biết phải tạo.
-
-### Tính chi phí cũ?
-
-KPI này **chỉ tính tháng này**. Nếu muốn theo dõi cả năm hoặc theo quý, có thể mở rộng sau.
+### Shopee đã chuyển vs Doanh thu tháng
+- "Shopee đã chuyển" tính theo `payment_date` của đợt Shopee
+- "Doanh thu tháng NET" tính theo `earned_date` của commission
+- **Hai số này có thể khác nhau**: ví dụ HH ngày 30/4 có thể được Shopee chuyển vào tháng 5
