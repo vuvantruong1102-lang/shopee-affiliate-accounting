@@ -1,128 +1,132 @@
-# Phase 7 — Báo cáo cốt lõi
+# Phase 8 — Tính toán (Tax Calculator)
 
 ## 🎯 Tính năng
 
-### 3 báo cáo cốt lõi
+Trang **"Tính toán"** ở menu trái dưới "Báo cáo" — công cụ máy tính độc lập để **ước tính nhanh** thuế và lợi nhuận. Không cần dữ liệu từ DB.
 
-| Báo cáo | URL | Mục đích |
-|---|---|---|
-| **Doanh thu** | `/reports/revenue` | Tổng doanh thu, breakdown theo tháng, so sánh kỳ trước |
-| **Theo Affiliate** | `/reports/affiliates` | Bảng tổng hợp từng affiliate, ai đang cầm tiền chưa nộp |
-| **Lãi/Lỗ (P&L)** | `/reports/pnl` | Doanh thu - Chi phí = Lãi, có pie chart cơ cấu chi phí |
+### Mục đích sử dụng
 
-### Tính năng chung 3 báo cáo
+- "Nếu tôi có affiliate mới với HH 50tr/tháng thì thuế bao nhiêu?"
+- "Tôi nên chi bao nhiêu cho Ads để có lợi nhuận?"
+- "1 năm tới nếu giữ mức này thì cuối năm phải nộp thêm bao nhiêu?"
+- "Có nên thuê thêm nhân viên không?"
 
-- ✅ **Filter linh hoạt**: Tháng / Tháng trước / Quý / Năm / Năm trước / Tùy chỉnh ngày
-- ✅ **So sánh kỳ trước**: tự động tính khoảng thời gian cùng độ dài và hiển thị % tăng/giảm
-- ✅ **Xuất Excel/CSV** (UTF-8 BOM, đọc được tiếng Việt)
-- ✅ **In/Lưu PDF** qua Ctrl+P (print CSS sẵn từ Phase 3)
-- ✅ **Recharts** cho biểu đồ (cột + pie)
+## 🎨 Layout
 
-### Đặc biệt từng báo cáo
+```
+┌─────────────────────────────────────┬────────────────────────┐
+│ Bên trái (3/5):                      │ Bên phải (2/5):         │
+│                                      │                         │
+│ 📝 Form nhập:                        │ 💰 Thuế theo bậc        │
+│   - Phạm vi (1/3/6/12 tháng)         │   - TNTT tổng           │
+│   - HH gross/tháng                   │   - TNTT/tháng          │
+│   - Lương/tháng                      │   - Bậc 1: 5% (đến 10tr)│
+│   - Chi phí Ads/khác                 │   - Bậc 2: 10% (10-30tr)│
+│   - Giảm trừ bản thân                │   - Bậc 3: 20% (30-60tr)│
+│   - Số NPT                           │   - Bậc 4: 30%...       │
+│                                      │   - Bậc 5: 35%...       │
+│ 📊 Bảng kết quả:                     │   ─────────────         │
+│   DOANH THU                          │   Tổng thuế             │
+│     - HH Gross / Net                 │   Đã KT 10%             │
+│     - Lương                          │   Còn phải nộp / hoàn   │
+│   GIẢM TRỪ                           │                         │
+│     - Bản thân / NPT                 │ (sticky khi scroll)     │
+│   THUẾ TNCN                          │                         │
+│     - Tạm nộp 10%                    │                         │
+│     - Còn phải nộp thêm              │                         │
+│   CHI PHÍ                            │                         │
+│     - Ads / Khác                     │                         │
+│   LỢI NHUẬN ⭐                        │                         │
+│                                      │                         │
+│ Cột bên phải có % so với HH gross    │                         │
+└─────────────────────────────────────┴────────────────────────┘
+```
 
-**Báo cáo Doanh thu**:
-- 4 KPI: Gross / Net (highlight) / Thuế KT / Số đợt
-- Biểu đồ cột theo tháng (Gross + Net)
-- Bảng chi tiết từng tháng
+## 🧮 Công thức
 
-**Báo cáo theo Affiliate**:
-- 4 KPI tổng: Net / Đã nhận / Đã nộp / **Đang cầm chưa nộp** (highlight)
-- Bảng có **sort được mọi cột** (gross, net, đã nhận, đang cầm, số đợt)
-- Tìm kiếm affiliate
-- Highlight đỏ nhẹ dòng có > 1tr đang cầm chưa nộp
-- Hiển thị % thay đổi net vs kỳ trước cho từng affiliate
+1. **Hoa hồng Net** = Gross × 90% (sau khi Shopee KT 10% vãng lai)
+2. **Tổng thu nhập** = HH Gross + Lương
+3. **Tổng giảm trừ** = (Bản thân 15.5tr + NPT × 6.2tr) × số tháng
+4. **TNTT** = Tổng thu nhập − Tổng giảm trừ
+5. **Thuế phải nộp** = TNTT/tháng → áp biểu lũy tiến 5 bậc → × số tháng
+6. **Thuế tạm nộp** = HH Gross × 10%
+7. **Còn phải nộp thêm** = max(0, Thuế phải nộp − Thuế tạm nộp)
+8. **Được hoàn** = max(0, Thuế tạm nộp − Thuế phải nộp)
+9. **Lợi nhuận** = HH Net + Lương − Tổng chi phí − Thuế còn phải nộp thêm
 
-**Báo cáo P&L**:
-- 3 KPI lớn: Doanh thu / Tổng chi phí / Lãi-Lỗ (with margin %)
-- Bảng P&L style kế toán: doanh thu - chi phí từng loại - lãi/lỗ
-- Pie chart cơ cấu chi phí (Marketing, Lương, Vận hành, Thuế, Khác)
-- Bảng breakdown chi tiết theo category
-- Cảnh báo đỏ nếu lỗ
+## ✨ Tính năng chi tiết
+
+### Form input
+- 4 preset thời gian: **1 / 3 / 6 / 12 tháng** (dropdown)
+- Nhập số tiền theo tháng → tự nhân với số tháng
+- Nút **"Đặt lại"** về mặc định
+- Real-time: thay đổi input → kết quả cập nhật ngay
+
+### Bảng kết quả (bên trái)
+- 5 sections: Doanh thu / Giảm trừ / Thuế / Chi phí / Lợi nhuận
+- Cột % so với HH Gross (để dễ so sánh tỷ trọng)
+- Hàng "Lợi nhuận" highlight lớn với màu xanh nếu lãi, đỏ nếu lỗ
+
+### Bảng thuế theo bậc (bên phải)
+- Sticky position (luôn hiển thị khi scroll)
+- Mỗi bậc có:
+  - Khoảng thu nhập (Đến 10tr / 10-30tr...)
+  - Thuế suất (5% / 10% / 20%...)
+  - TN trong bậc + Thuế trong bậc
+  - **Progress bar** thể hiện tỷ trọng thuế của bậc đó
+- Cuối bảng tổng kết: Tổng thuế / Đã KT / Còn phải nộp hoặc Hoàn
+
+### Nút "Đặt lại"
+- Reset toàn bộ về giá trị mẫu (HH 30tr/tháng, Ads 5tr...)
+- Hữu ích khi thử nhiều scenario
+
+### Note hướng dẫn
+- Giải thích công thức ngắn gọn cuối trang
+- Lưu ý về các yếu tố ước tính (chưa tính BHXH...)
 
 ## 📋 Triển khai
 
-### Bước 1: Chạy SQL
-
-Vào Supabase SQL Editor → paste `supabase/migrations/20260514000001_phase7_reports.sql` → Run.
-
-Tạo 5 RPC: `get_revenue_report`, `get_revenue_by_month`, `get_affiliates_report`, `get_pnl_report`, `get_expense_breakdown`.
-
-### Bước 2: Upload 9 file code
+### Bước 1: Upload 3 file
 
 ```
-lib/report-period.ts                                       [FILE MỚI]
-app/(dashboard)/reports/page.tsx                           [GHI ĐÈ placeholder]
-app/(dashboard)/reports/revenue/page.tsx                   [FILE MỚI - folder mới]
-app/(dashboard)/reports/affiliates/page.tsx                [FILE MỚI - folder mới]
-app/(dashboard)/reports/pnl/page.tsx                       [FILE MỚI - folder mới]
-components/reports/period-selector.tsx                     [FILE MỚI]
-components/reports/revenue-report-view.tsx                 [FILE MỚI]
-components/reports/affiliates-report-view.tsx              [FILE MỚI]
-components/reports/pnl-report-view.tsx                     [FILE MỚI]
+app/(dashboard)/calculator/page.tsx              [FILE MỚI]
+components/calculator/calculator-form.tsx        [FILE MỚI]
+components/layout/sidebar.tsx                    [GHI ĐÈ - thêm nút Tính toán]
 ```
 
-⚠️ Đặt file đúng vị trí, không tạo `lib/components/...`
+**KHÔNG cần SQL migration** — trang này là tính toán client-side hoàn toàn.
 
-### Bước 3: Commit + Push
+### Bước 2: Commit + Push
 
-Message: `Phase 7: Revenue + Affiliates + P&L reports`
+Message: `Phase 8: Tax & profit calculator`
 
-### Bước 4: Test
+### Bước 3: Test
 
-**Test Báo cáo Doanh thu**:
-1. Vào `/reports/revenue` → mặc định là tháng này
-2. Đổi sang "Tháng trước" → data đổi, % so sánh cập nhật
-3. Chọn ngày custom → check kết quả
-4. Bấm "Xuất Excel" → file CSV mở được trên Excel
-5. Bấm "In/PDF" → Ctrl+P, kiểm tra trang in chỉ có header + bảng
+1. Vào menu trái → kiểm tra có nút **"Tính toán"** dưới "Báo cáo"
+2. Click vào → trang hiển thị với 2 cột
+3. **Test case 1**: HH 30tr/tháng, 12 tháng, 1 NPT
+   - Tổng thuế phải nộp: **~4.98 triệu**
+   - Đã KT 10%: **36 triệu**
+   - **Được hoàn: ~31 triệu**
+4. **Test case 2**: HH 100tr/tháng, 12 tháng, 0 NPT
+   - Tổng thuế phải nộp: **~190 triệu**
+   - Đã KT 10%: **120 triệu**
+   - **Phải nộp thêm: ~70 triệu**
+5. Thay đổi input → kết quả thay đổi realtime
+6. Bấm "Đặt lại" → form về mặc định
 
-**Test Báo cáo Affiliate**:
-1. Vào `/reports/affiliates`
-2. Click vào header cột → sort tăng/giảm
-3. Tìm kiếm affiliate → filter đúng
-4. Affiliate nào đang cầm > 1tr → có dòng highlight + icon cảnh báo
-5. Bấm Xuất Excel → kiểm tra format
+## 💡 Mẹo sử dụng
 
-**Test Báo cáo P&L**:
-1. Trước khi test, nhập vài chi tiêu test (Marketing, Lương)
-2. Vào `/reports/pnl`
-3. Kiểm tra Doanh thu Net hiển thị đúng
-4. Bảng P&L: doanh thu - chi phí - lãi/lỗ
-5. Pie chart hiển thị cơ cấu chi phí
-6. Nếu lỗ → có cảnh báo đỏ
+### Tính ngược: tôi muốn lãi X, cần HH bao nhiêu?
+Thử nhiều giá trị HH gross/tháng cho đến khi cột "Lợi nhuận" đạt mức mong muốn.
 
-## 💡 Lưu ý
+### So sánh kịch bản: thuê hay không thuê NV?
+- Kịch bản 1: Chi phí khác = 0 → lợi nhuận
+- Kịch bản 2: Chi phí khác = 15tr (lương 1 NV) → lợi nhuận
+- So sánh chênh lệch
 
-### Logic so sánh kỳ trước
+### Tối ưu Ads
+Tăng/giảm Ads, xem điểm hòa vốn ở đâu.
 
-Hệ thống tự tính khoảng thời gian cùng độ dài. Ví dụ:
-- Kỳ này: 01/05/2026 → 31/05/2026 (31 ngày)
-- Kỳ trước: 31/03/2026 → 30/04/2026 (31 ngày)
-- Năm này: 01/01/2026 → 31/12/2026 (365 ngày)
-- Kỳ trước: 01/01/2025 → 31/12/2025
-
-### Chi phí trong P&L
-
-Lấy từ **cả** `bank_transactions` và `cash_transactions` (loại `expense`), nhóm theo `expense_categories.type`:
-- `marketing` → "Marketing & Quảng cáo"
-- `salary` → "Lương nhân viên"
-- `operating` → "Vận hành"
-- `tax` → "Thuế, phí"
-- `other` hoặc NULL → "Khác"
-
-⚠️ **Chi phí chưa có khoản mục** (`expense_category_id = NULL`) sẽ rơi vào "Khác".
-
-### Tại sao Doanh thu trong P&L dùng NET
-
-P&L tính lãi thực, nên dùng **net** (sau khi Shopee đã khấu trừ 10% thuế). Đây là số tiền thực mà công ty được hưởng.
-
-### "Đã nộp" trong Báo cáo Affiliate
-
-Chỉ tính giao dịch trong khoảng thời gian báo cáo. Nếu affiliate có hoa hồng tháng 5 nhưng nộp tháng 6 → tháng 5 sẽ hiện "đang cầm", tháng 6 sẽ hiện "đã nộp".
-
-## 🔮 Có thể mở rộng
-
-- **Báo cáo tổng hợp tháng/quý**: gộp 3 báo cáo vào 1 trang
-- **Email báo cáo tự động**: cuối tháng auto gửi PDF
-- **Báo cáo theo category cụ thể**: chi tiết hơn cho từng khoản
-- **Forecast**: dự báo doanh thu/lãi tháng sau dựa trên xu hướng
+### Test luật thuế
+Thử HH cao để xem khi nào nhảy bậc thuế (>10tr/tháng → bậc 2, >30tr → bậc 3...)
