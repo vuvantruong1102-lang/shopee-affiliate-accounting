@@ -28,13 +28,6 @@ export interface AffiliateFormData {
   notes?: string;
 }
 
-/**
- * cleanForCreate: dùng khi INSERT (tạo mới)
- * - Bỏ field undefined và ""
- * - Giữ lại field có giá trị thật sự (kể cả 0, false)
- * 
- * KHÔNG dùng cho update vì sẽ không cho phép xóa field về null.
- */
 function cleanForCreate<T extends object>(obj: T): Partial<T> {
   const result: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(obj)) {
@@ -45,17 +38,10 @@ function cleanForCreate<T extends object>(obj: T): Partial<T> {
   return result as Partial<T>;
 }
 
-/**
- * cleanForUpdate: dùng khi UPDATE
- * - Bỏ field undefined (không update)
- * - Field "" được giữ → DB set thành "" hoặc null tùy logic
- * - Cho phép xóa field về trống
- */
 function cleanForUpdate<T extends object>(obj: T): Partial<T> {
   const result: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(obj)) {
     if (value === undefined) continue;
-    // Convert "" thành null cho các field optional (DB friendly)
     if (value === "") {
       result[key] = null;
     } else {
@@ -103,8 +89,6 @@ export async function updateAffiliate(
   }
 
   const cleaned = cleanForUpdate(formData);
-
-  // Log để dễ debug nếu vẫn lỗi
   console.log("[updateAffiliate] id:", id, "payload:", cleaned);
 
   const { data, error } = await supabase
@@ -116,6 +100,32 @@ export async function updateAffiliate(
 
   if (error) {
     console.error("[updateAffiliate] error:", error);
+    return { error: error.message };
+  }
+
+  revalidatePath("/affiliates");
+  revalidatePath(`/affiliates/${id}`);
+  revalidatePath("/dashboard");
+  return { data };
+}
+
+// ✨ Đóng tài khoản (set status = 'closed', KHÔNG xóa)
+export async function closeAffiliate(id: string) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) {
+    return { error: "Bạn cần đăng nhập" };
+  }
+
+  const { data, error } = await supabase
+    .from("affiliate_accounts")
+    .update({ status: "closed" })
+    .eq("id", id)
+    .select()
+    .single();
+
+  if (error) {
+    console.error("[closeAffiliate] error:", error);
     return { error: error.message };
   }
 
