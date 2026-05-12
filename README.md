@@ -1,154 +1,114 @@
-# Phase 10 — Trang Affiliate cải tiến
+# Phase 10 Fix Final — 3 vấn đề
 
-## 🎯 4 thay đổi
+## 🐛 Vấn đề & Giải pháp
 
-### 1. Thông tin liên hệ + Thuế TNCN gọn lại
+### Vấn đề 1: "Đang cầm = 0" sai
 
-**Trước**: 2 card cao, mỗi field 1 dòng to với icon → tốn nhiều khoảng trắng
+**Nguyên nhân**: Trong DB đang có **70.000.000đ** `bank_transactions.income` link với affiliate Trần Văn An. Có thể là:
+- Giao dịch test cũ từ Phase 5 fix backfill
+- Giao dịch nộp tiền thật bạn đã nhập tay qua /data-entry trước Phase 10
+- Cộng cả 2
 
-**Sau**: Grid 2 cột compact, label nhỏ 110px + value cùng dòng
+**Giải pháp**: 
+- Code đã sửa hiển thị "Vượt X đồng" thay vì "Đang cầm = 0" để rõ hơn
+- File `diagnostic-queries.sql` cho phép bạn check + xóa giao dịch test nếu cần
 
-```
-Thông tin liên hệ                  Thuế TNCN · YTD 2026 (tháng 1-5)
-─────────────────────              ──────────────────────────────────
-📧 Email     abc@gmail.com         Giảm trừ BT      Có (15.5tr/tháng)
-📞 ĐT        0981876287            Người phụ thuộc  0 người
-💳 CCCD      024025603256          Shopee đã KT     122.222.222đ
-📄 MST       024025603256          Tổng đã KT       122.222.222đ
-📍 Địa chỉ   Bắc Giang             ─────────────────────────────
-🏦 TK nhận   TCB · 19275023427     Số thuế phải nộp thêm
-                                   205.930.558đ
-                                   Phải nộp thêm (lũy tiến 5 bậc)
-```
+### Vấn đề 2: TK công ty không hiện trong dropdown
 
-### 2. Nút Sửa/Xóa cho hoa hồng
+**Nguyên nhân**: Query của tôi filter `WHERE is_company = true`, nhưng:
+- Cột `is_company` có thể chưa tồn tại (Phase 1 không có)
+- Hoặc TK của bạn có `is_company = false`
 
-Mỗi dòng hover → hiện 2 nút ✏️ 🗑
+**Giải pháp**:
+1. SQL migration **thêm cột `is_company` với default = true** cho tất cả TK hiện có
+2. Bỏ filter `is_company` trong query → lấy tất cả TK không bị xóa
+3. Trang `/settings` mới: tự động set `is_company = true` khi tạo
 
-- **Hoa hồng nhập tay** (không link Shopee) → sửa/xóa được
-- **Hoa hồng từ đợt Shopee** (có icon 🔗) → 2 nút **mờ + cursor not-allowed**, tooltip "Vào Đối soát Shopee để sửa/xóa"
-  - Click vẫn báo toast hướng dẫn
+### Vấn đề 3: Không có nút xóa TK ngân hàng
 
-Có footer note giải thích.
-
-### 3. Nút "Nộp tiền" mới
-
-Ở header bên cạnh các nút khác. Bấm vào → mở modal:
-
-```
-┌─ NỘP TIỀN VÀO TK CÔNG TY ──────────────────────┐
-│ Trần Văn An                                      │
-│                                                  │
-│ ┌─ Đã thực nhận ─┐  ┌─ Đang cầm ──┐            │
-│ │ 1.100.000.000  │  │ 1.030.000.000│           │
-│ └────────────────┘  └──────────────┘           │
-│                                                  │
-│ Số tiền nộp *                                    │
-│ [1.030.000.000 đ]   ← auto fill = đang cầm     │
-│                                                  │
-│ TK công ty nhận * [VCB ****1234 ▼]              │
-│ Ngày nộp *        [12/05/2026]                  │
-│ Ghi chú           [...]                         │
-│                                                  │
-│         [Hủy]   [💰 Xác nhận nộp tiền]         │
-└─────────────────────────────────────────────────┘
-```
-
-**Auto fill mặc định** = "Đang cầm chưa nộp" (linh hoạt sửa)
-
-**Không cảnh báo popup**: chỉ hiện **badge đỏ "!"** ở KPI "Đã thực nhận" khi tổng đã nộp > tổng đã nhận (nộp quá).
-
-Bấm xác nhận → hệ thống **TỰ ĐỘNG**:
-- Tạo `bank_transactions` (trans_type='income', account_id=affiliate)
-- → Hiển thị ngay trong **Sổ ngân hàng**
-- → KPI "Đã nộp vào công ty" tăng
-- → KPI "Còn chưa nộp" giảm
-
-### 4. Bỏ nút "Thêm hoa hồng"
-
-Đã xóa hoàn toàn. Workflow mới: vào **Đối soát Shopee** → tạo đợt → commission tự sinh.
-
-Nếu cần nhập hoa hồng cá biệt (không qua Shopee), vẫn có thể vào **Nhập liệu** (cũ).
+**Giải pháp**: Trang `/settings` mới với:
+- ➕ Form thêm TK
+- ✏️ Sửa TK
+- 🗑 Xóa TK (RPC thông minh: xóa mềm nếu có giao dịch, xóa cứng nếu không)
+- Hiển thị số giao dịch của mỗi TK
 
 ## 📋 Triển khai
 
-### Bước 1: Chạy SQL
+### Bước 1: Chạy SQL migration
 
-Vào Supabase SQL Editor → paste `supabase/migrations/20260514000006_phase10_deposit_and_commission_actions.sql` → Run.
+Vào Supabase SQL Editor → paste nội dung file:
+```
+supabase/migrations/20260514000007_bank_accounts_is_company_and_delete.sql
+```
+→ Run.
 
-Migration tạo 3 RPC:
-- `submit_affiliate_deposit` - nộp tiền
-- `delete_commission` - xóa hoa hồng (chặn nếu link Shopee)
-- `update_commission` - sửa hoa hồng (chặn nếu link Shopee)
+Migration làm:
+1. Thêm cột `is_company BOOLEAN DEFAULT true` vào `bank_accounts`
+2. Tạo RPC `delete_bank_account` (xóa thông minh)
+3. Thêm cột `updated_at` + trigger nếu chưa có
 
-### Bước 2: Upload 7 file code
+### Bước 2: (TÙY CHỌN) Chạy diagnostic để check 70tr
+
+Mở file `diagnostic-queries.sql` → chạy **QUERY 1** trước → xem 70tr đó là giao dịch gì.
+
+Nếu là giao dịch test cũ → uncomment QUERY 2 → paste ID → xóa.
+
+### Bước 3: Upload 4 file code
 
 ```
-app/(dashboard)/affiliates/[id]/page.tsx                ← GHI ĐÈ
-app/(dashboard)/affiliates/[id]/actions.ts              ← MỚI
-
-components/affiliates/deposit-modal.tsx                 ← MỚI
-components/affiliates/edit-commission-modal.tsx         ← MỚI
-components/affiliates/commission-list.tsx               ← MỚI
-components/affiliates/affiliate-actions-button.tsx      ← MỚI
+app/(dashboard)/affiliates/[id]/page.tsx              ← GHI ĐÈ
+app/(dashboard)/settings/page.tsx                     ← GHI ĐÈ (hoặc MỚI)
+app/(dashboard)/settings/actions.ts                   ← MỚI
+components/settings/bank-accounts-manager.tsx         ← MỚI
 ```
 
-⚠️ **Nếu file `app/(dashboard)/affiliates/[id]/page.tsx` đã có nội dung khác** (form edit, tax button cũ...) thì cần backup trước khi ghi đè để chắc chắn không mất logic.
+⚠️ **Lưu ý**: Nếu folder `app/(dashboard)/settings/` đã có nội dung khác (vd: cài đặt user, theme...), bạn copy thêm phần "Tài khoản ngân hàng công ty" từ file mới này vào file cũ, không ghi đè toàn bộ.
 
-### Bước 3: Commit + Push
+### Bước 4: Commit + Push
 
-Message: `Phase 10: Affiliate detail redesign + deposit button + commission CRUD`
+Message: `Phase 10 Fix: bank accounts management + fix deposit modal`
 
-### Bước 4: Test
+### Bước 5: Test
 
-**Test 1 - Layout gọn**:
-1. Vào `/affiliates/[id]` của 1 affiliate có data
-2. Card "Thông tin liên hệ" và "Thuế TNCN" có 2 cột compact, mỗi field 1 hàng nhỏ
-3. Card cao bằng nhau, gọn gàng
+**Test 1 - TK hiện trong dropdown nộp tiền**:
+1. Vào `/affiliates/[id]` của bất kỳ affiliate
+2. Bấm "💰 Nộp tiền"
+3. Modal hiện → dropdown "TK công ty nhận" có TK của bạn (Techcombank ****1234 hoặc gì đó)
 
-**Test 2 - Sửa hoa hồng nhập tay**:
-1. Tìm 1 hoa hồng KHÔNG có icon 🔗 (không từ Shopee)
-2. Hover → bấm ✏️ → modal mở
-3. Sửa số tiền → Save
-4. Kỳ vọng: số tiền cập nhật, KPI cũng đổi theo
+**Test 2 - Trang cài đặt TK ngân hàng**:
+1. Vào `/settings`
+2. Thấy section "Tài khoản ngân hàng công ty" với danh sách
+3. Bấm "Thêm tài khoản" → form hiện
+4. Nhập VD: BIDV / 0123456789 / Công ty ABC → Lưu
+5. Xuất hiện trong danh sách
+6. Bấm ✏️ → sửa
+7. Bấm 🗑 → confirm:
+   - Nếu chưa có giao dịch: "Sẽ xóa hoàn toàn"
+   - Nếu có giao dịch: "Sẽ xóa mềm, giữ lịch sử"
 
-**Test 3 - Xóa hoa hồng từ Shopee (chặn)**:
-1. Tìm 1 hoa hồng có icon 🔗
-2. Hover → bấm 🗑 → toast lỗi "Vào Đối soát Shopee để xóa"
+**Test 3 - Diagnostic 70tr**:
+1. Chạy QUERY 1 trong `diagnostic-queries.sql`
+2. Xem các giao dịch income đó là gì
+3. Nếu sai → xóa bằng QUERY 2
+4. Refresh trang affiliate → "Đang cầm" sẽ hiển thị đúng
 
-**Test 4 - Nộp tiền**:
-1. Bấm "💰 Nộp tiền" trên header
-2. Modal hiện với 2 KPI: Đã thực nhận + Đang cầm
-3. Số tiền auto-fill = đang cầm
-4. Chọn TK công ty, ngày
-5. Xác nhận → toast thành công
-6. Vào `/bank-book` → có giao dịch income mới
-7. Refresh trang affiliate → KPI "Đã nộp vào công ty" tăng
+## 💡 Lưu ý
 
-**Test 5 - Cảnh báo nộp quá**:
-1. Nộp số tiền > đã thực nhận
-2. Modal hiện cảnh báo đỏ
-3. Sau khi xác nhận, KPI "Đã thực nhận" có badge đỏ "!"
+### Sau khi xóa TK mềm
 
-## 💡 Lưu ý kỹ thuật
+TK xóa mềm vẫn còn trong DB (chỉ ẩn khỏi danh sách). Các giao dịch cũ vẫn dùng được, vẫn xem được trong Sổ ngân hàng.
 
-### Tại sao chặn xóa commission từ Shopee?
+Nếu muốn khôi phục: chạy SQL:
+```sql
+UPDATE bank_accounts SET is_deleted = false WHERE id = 'xxx';
+```
 
-Để giữ **toàn vẹn dữ liệu**: nếu xóa commission mà không xóa shopee_payment tương ứng → DB sẽ có shopee_payment "mồ côi", không match với gì cả. Vào trang Đối soát Shopee xóa thì cả 2 cùng bị xóa (logic Phase 9).
+### Tại sao bỏ filter `is_company`?
 
-### Format icon "link Shopee"
+Logic mới đơn giản hơn:
+- Bảng `bank_accounts` = chỉ TK công ty
+- TK affiliate cá nhân lưu trong `affiliate_accounts.bank_name / bank_account_number`
 
-Dòng commission có icon 🔗 nhỏ màu primary bên cạnh kỳ. Hover icon → tooltip "Từ đợt Shopee".
+→ Không cần filter, lấy hết `bank_accounts` không bị xóa.
 
-### Auto fill modal nộp tiền
-
-Logic: `Math.max(0, undeposited)` để khi đã nộp đủ/quá thì default = 0 (user phải tự nhập).
-
-### "Đã nộp vào công ty" tính từ đâu?
-
-`SUM(bank_transactions.amount)` với:
-- `trans_type = 'income'`
-- `account_id = affiliate.id`
-- `is_deleted = false`
-
-→ Đảm bảo mọi giao dịch "Nộp tiền" được link đúng affiliate.
+Cột `is_company` vẫn được tạo (default true) để tương thích về sau nếu cần phân biệt.
