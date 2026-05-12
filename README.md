@@ -1,128 +1,167 @@
-# Phase 11 — Period filter + Activity log
+# Phase 12 — Export Excel năm + Global Search (Ctrl+K)
 
-## 🎯 2 thay đổi
+## 🎯 2 tính năng mới
 
-### 1. Hoạt động gần đây — gộp commission + deposit
+### 1️⃣ Export Excel năm cho từng affiliate
 
-Card mới ở cuối trang affiliate hiển thị log thống nhất:
-- 📈 Hoa hồng (icon xanh primary)
-- 💰 Nộp tiền vào công ty (icon xanh success)
+Nút **"📥 Xuất Excel năm"** trên header trang affiliate. Bấm vào → modal chọn năm → tải file CSV.
 
-Sắp xếp theo ngày, mới nhất trước. Mỗi item có:
-- Icon + tên hoạt động + badge trạng thái
-- Số tiền lớn bên phải
-- Ngày + chi tiết (TK ngân hàng, ghi chú...)
+**File CSV gồm 8 section** (mở bằng Excel/Google Sheets):
+1. Thông tin chung affiliate (CCCD, MST, TK ngân hàng, NPT, lương)
+2. Tổng kết doanh thu năm
+3. Bảng kê hoa hồng theo từng tháng (12 tháng)
+4. Chi tiết từng đợt hoa hồng (có mã thanh toán Shopee)
+5. Chi tiết các lượt nộp tiền vào công ty
+6. Tính thuế TNCN chi tiết
+7. Thuế theo 5 bậc lũy tiến (chi tiết từng bậc)
+8. Kết quả quyết toán (phải nộp / được hoàn)
 
-### 2. Period filter
+Tên file: `quyettoan-thue-{năm}-{tên-affiliate}.csv`
 
-Filter bar ở đầu trang với 6 preset:
-- **Tất cả** (mặc định, không filter)
-- **Tuần này** (T2 - CN)
-- **Tháng này**
-- **Tháng trước**
-- **Năm này**
-- **Tùy chọn** (chọn from/to ngày)
+### 2️⃣ Global Search (Ctrl+K / Cmd+K)
 
-Filter **lọc cả**:
-- ✅ 4 KPI ở đầu trang
-- ✅ Bảng "Hoa hồng"
-- ✅ "Hoạt động gần đây"
+Phím tắt **Ctrl+K** (Windows/Linux) hoặc **Cmd+K** (Mac) — hoạt động ở mọi trang trong dashboard.
 
-**KHÔNG lọc**:
-- ❌ Phần Thuế TNCN (luôn tính YTD cả năm để đúng luật)
-- ❌ Thông tin liên hệ
-- ❌ Modal "Nộp tiền" (vẫn dùng số tổng tất cả thời gian)
+Tìm được:
+- **Affiliate** theo tên / SĐT / CCCD / email
+- **Đợt thanh toán Shopee** theo mã thanh toán
+- **Giao dịch ngân hàng** theo số tiền (vd: 20000000) hoặc mô tả
 
-## 🎨 UI
+Features:
+- Debounce 300ms (không gọi API mỗi lần gõ)
+- Arrow keys ↑↓ để di chuyển
+- Enter để mở
+- Esc để đóng
+- Mouse hover cũng select item
 
-### Period filter ở đầu trang
+---
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│ 📊 Lọc theo kỳ: Đang xem: Tháng này                          │
-│                                                              │
-│ [Tất cả][Tuần này][Tháng này][Tháng trước][Năm này][Tùy chọn]│
-│                                                              │
-│ 📅 [01/05/2026] → [31/05/2026]   (hiện khi không phải All)  │
-└─────────────────────────────────────────────────────────────┘
-```
-
-### Activity log
+## 📁 Files trong gói (7 files)
 
 ```
-┌─ Hoạt động gần đây ──────────────────────────────────────────┐
-│ X hoạt động · Tháng này · gồm hoa hồng + nộp tiền            │
-├──────────────────────────────────────────────────────────────┤
-│ 📈 Hoa hồng [Đợt Shopee] [Đã nhận]      +13.738.004đ        │
-│    📅 07/05/2026 · Nhận 11/05/2026       Gross 15tr − Thuế 1.5tr│
-├──────────────────────────────────────────────────────────────┤
-│ 💰 Nộp tiền vào công ty [Đã nộp]        +20.000.000đ        │
-│    📅 11/05/2026  🏦 Vietcombank · 942829421                 │
-├──────────────────────────────────────────────────────────────┤
-│ 📈 Hoa hồng [Đã nhận]                    +28.432.690đ        │
-│    📅 04/05/2026                         Gross 31tr − Thuế 3tr│
-└──────────────────────────────────────────────────────────────┘
-```
-
-## 📋 Triển khai
-
-### Bước 1: Upload 3 file
-
-```
-app/(dashboard)/affiliates/[id]/page.tsx                  ← GHI ĐÈ
-components/affiliates/affiliate-period-selector.tsx       ← MỚI
-components/affiliates/activity-log.tsx                    ← MỚI
+lib/csv-multi-section.ts                                   ← MỚI
+app/(dashboard)/affiliates/[id]/export/actions.ts          ← MỚI
+components/affiliates/annual-export-modal.tsx              ← MỚI
+components/affiliates/affiliate-actions-button.tsx         ← GHI ĐÈ (thêm nút Export)
+components/global-search/actions.ts                        ← MỚI
+components/global-search/search-modal.tsx                  ← MỚI
+components/global-search/search-trigger.tsx                ← MỚI
 ```
 
 **KHÔNG cần SQL migration**.
 
-### Bước 2: Commit + Push
+---
 
-Message: `Phase 11: period filter + activity log on affiliate page`
+## 📋 Triển khai
 
-### Bước 3: Test
+### Bước 1: Upload 7 file
 
-**Test 1 - Period filter**:
-1. Vào `/affiliates/[id]`
-2. Mặc định: hiển thị "Tất cả thời gian"
-3. Bấm "Tháng này" → URL có `?from=2026-05-01&to=2026-05-31&preset=this_month`
-4. 4 KPI cập nhật theo tháng
-5. Bảng hoa hồng + Activity log cũng cập nhật
+Sao chép đúng cấu trúc folder vào repo.
 
-**Test 2 - Custom period**:
-1. Bấm "Tùy chọn" → 2 input date hiện ra
-2. Chọn from = 01/03/2026, to = 31/03/2026
-3. Tất cả dữ liệu lọc theo Q1/Tháng 3
+### Bước 2: Tích hợp GlobalSearchTrigger vào layout
 
-**Test 3 - Activity log**:
-1. Cuộn xuống "Hoạt động gần đây"
-2. Thấy mix giữa hoa hồng + nộp tiền
-3. Sắp xếp theo ngày, mới nhất trước
-4. Hoa hồng từ Shopee có icon 🔗
+Mở file `app/(dashboard)/layout.tsx` (hoặc component `Topbar`/`Header` nếu có), thêm import và đặt button vào header.
 
-**Test 4 - Thuế vẫn YTD**:
-1. Chuyển sang "Tháng trước"
-2. KPI thay đổi nhưng card "Thuế TNCN" vẫn hiển thị số YTD cả năm
-3. Có note nhỏ "Luôn tính cả năm" để rõ
+**Ví dụ tích hợp** (vị trí cụ thể tùy layout của bạn):
 
-## 💡 Lưu ý
+```tsx
+// Trên cùng file
+import { GlobalSearchTrigger } from "@/components/global-search/search-trigger";
 
-### Modal Nộp tiền — số đúng
+// Trong topbar/header, ví dụ bên cạnh thông báo / avatar:
+<header className="flex items-center justify-between ...">
+  <div>{/* logo / breadcrumb */}</div>
 
-Modal "Nộp tiền" cần biết tổng "Đã thực nhận" và "Đang cầm" của **tất cả thời gian** để gợi ý số nộp đúng. Phase 11 fix điều này:
-- KPI trên trang lọc theo period
-- Modal vẫn dùng `allTimeReceived` và `allTimeTotalDeposited`
+  <div className="flex items-center gap-3">
+    <GlobalSearchTrigger />     {/* ✨ thêm dòng này */}
+    {/* notification icon */}
+    {/* user avatar */}
+  </div>
+</header>
+```
 
-### Tuần bắt đầu T2
+**Hoặc đơn giản hơn**: nếu không muốn sửa layout, chỉ cần phím tắt Ctrl+K hoạt động ở mọi trang, đặt component này 1 lần trong dashboard layout — phím tắt sẽ bắt được toàn cục.
 
-Logic preset "Tuần này" tính từ Thứ 2 đến Chủ nhật (chuẩn Việt Nam), không phải CN-T7.
+> 💡 Nếu chưa biết file layout ở đâu, search: "topbar" hoặc "header" trong project.
 
-### URL có state
+### Bước 3: Commit + Push
 
-Khi bấm preset, URL update với `?from=...&to=...&preset=...`. Có thể bookmark hoặc share link với filter cụ thể.
+Message: `Phase 12: annual export + global search Ctrl+K`
 
-### Performance
+### Bước 4: Test
 
-- Query commissions giới hạn 100 records
-- Query deposits giới hạn 100 records
-- Bank info được fetch 1 lần với `IN (...)` thay vì N+1
+#### Test Export Excel năm
+
+1. Vào trang affiliate `/affiliates/[id]` (vd: Trần Văn An)
+2. Bấm nút **"📥 Xuất Excel năm"** trên header
+3. Modal hiện → chọn năm 2026 → bấm "Tải xuống"
+4. File `quyettoan-thue-2026-tran-van-an.csv` được tải về
+5. Mở bằng Excel → kiểm tra:
+   - 8 section đầy đủ
+   - Tiếng Việt hiển thị đúng (không bị mã hóa)
+   - Số liệu khớp với trang web
+
+#### Test Global Search
+
+1. Ở bất kỳ trang nào, bấm **Ctrl+K** (hoặc Cmd+K trên Mac)
+2. Modal mở với input focus
+3. Gõ "Trần" → thấy "Trần Văn An" trong group "Affiliates"
+4. Bấm Enter → đi tới trang chi tiết affiliate
+5. Mở lại Ctrl+K, gõ "17351120" (mã thanh toán) → thấy đợt Shopee
+6. Mở lại, gõ "20000000" → thấy giao dịch ngân hàng số tiền 20tr
+7. Test Arrow keys ↑↓ + Enter
+8. Test Esc đóng modal
+
+---
+
+## 💡 Lưu ý kỹ thuật
+
+### File CSV xuất ra
+
+- Format: **UTF-8 BOM CSV** (mở bằng Excel hỗ trợ tiếng Việt)
+- Có thể đặt tên file `.csv` thành `.xls` để Excel mở mặc định nếu muốn
+- Mỗi section ngăn cách bằng 2 dòng trống — Excel sẽ tự nhận dạng từng bảng
+
+### Global Search performance
+
+- Mỗi tìm kiếm gọi tối đa **3 query song song** (affiliates, shopee_payments, bank_transactions)
+- Mỗi query LIMIT 5-10 records
+- Tổng kết quả cap ở 25 items
+- Debounce 300ms tránh spam API
+
+### Phím tắt xung đột
+
+- **Ctrl+K** đôi khi xung đột với phím tắt browser (Firefox = search bar)
+- Cmd+K trên Mac OK
+- Nếu xung đột: vẫn có nút trong topbar để click
+
+### Khi search không có kết quả
+
+- Có thể là query < 2 ký tự → hiện hint
+- Có thể là không match → hiện "Không tìm thấy"
+- Loading indicator hiện khi đang query
+
+---
+
+## 🎬 Demo workflow
+
+### Sử dụng cuối năm
+
+```
+1. Mở Ctrl+K → gõ "Trần"
+2. Chọn affiliate Trần Văn An
+3. Trên trang chi tiết, bấm "Xuất Excel năm"
+4. Chọn năm 2026 → Tải xuống
+5. Mở file CSV → gửi email cho affiliate
+6. Lặp lại cho từng affiliate
+```
+
+### Sử dụng hàng ngày
+
+```
+1. Affiliate gọi báo "Em vừa nhận tiền đợt 17351120532..."
+2. Ctrl+K → paste mã → Enter
+3. Mở thẳng trang Đối soát Shopee → tìm đợt → bấm "Đã nhận"
+```
+
+→ Tiết kiệm nhiều click hơn so với navigate qua menu.
