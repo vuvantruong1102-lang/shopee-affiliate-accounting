@@ -392,7 +392,7 @@ function KpiCard({
         <div className="flex items-center justify-between gap-2">
           <p className="text-xs text-muted-foreground font-medium">{label}</p>
           {warning && (
-            <Badge variant="destructive" className="text-[9px]" title={warningText}>
+            <Badge variant="danger" className="text-[9px]" title={warningText}>
               !
             </Badge>
           )}
