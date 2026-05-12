@@ -5,17 +5,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { CurrencyInput } from "@/components/shared/currency-input";
-import { Loader2, Wallet, X, AlertTriangle } from "lucide-react";
+import { Loader2, Banknote, X, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import { formatCurrency } from "@/lib/utils";
-import { submitAffiliateDeposit } from "@/app/(dashboard)/affiliates/[id]/actions";
-
-interface BankAccount {
-  id: string;
-  bank_name: string;
-  account_number: string;
-  account_holder: string;
-}
+import { submitAffiliateCashDeposit } from "@/app/(dashboard)/affiliates/[id]/actions";
 
 interface Props {
   open: boolean;
@@ -23,15 +16,13 @@ interface Props {
   affiliate: {
     id: string;
     full_name: string;
-    received_total: number; // Đã thực nhận
-    undeposited: number; // Đang cầm chưa nộp
+    received_total: number;
+    undeposited: number;
   };
-  companyBanks: BankAccount[];
 }
 
-export function DepositModal({ open, onClose, affiliate, companyBanks }: Props) {
+export function DepositModal({ open, onClose, affiliate }: Props) {
   const [amount, setAmount] = useState(Math.max(0, affiliate.undeposited));
-  const [bankId, setBankId] = useState(companyBanks[0]?.id ?? "");
   const [transDate, setTransDate] = useState(new Date().toISOString().split("T")[0]);
   const [notes, setNotes] = useState("");
   const [loading, setLoading] = useState(false);
@@ -43,10 +34,6 @@ export function DepositModal({ open, onClose, affiliate, companyBanks }: Props) 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
 
-    if (!bankId) {
-      toast.error("Chọn tài khoản công ty nhận tiền");
-      return;
-    }
     if (amount <= 0) {
       toast.error("Số tiền phải lớn hơn 0");
       return;
@@ -54,9 +41,8 @@ export function DepositModal({ open, onClose, affiliate, companyBanks }: Props) 
 
     setLoading(true);
     try {
-      const result = await submitAffiliateDeposit({
+      const result = await submitAffiliateCashDeposit({
         affiliate_id: affiliate.id,
-        company_bank_id: bankId,
         amount,
         trans_date: transDate,
         notes: notes.trim() || undefined,
@@ -66,7 +52,7 @@ export function DepositModal({ open, onClose, affiliate, companyBanks }: Props) 
         toast.error(result.error);
         return;
       }
-      toast.success(`Đã ghi nhận ${affiliate.full_name} nộp ${formatCurrency(amount)}`);
+      toast.success(`Đã ghi nhận ${affiliate.full_name} nộp ${formatCurrency(amount)} tiền mặt`);
       onClose();
     } catch (err) {
       console.error(err);
@@ -79,14 +65,13 @@ export function DepositModal({ open, onClose, affiliate, companyBanks }: Props) 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
       <div className="bg-card rounded-lg shadow-lg w-full max-w-md max-h-[90vh] overflow-y-auto">
-        {/* Header */}
         <div className="flex items-center justify-between p-5 border-b border-border">
           <div className="flex items-center gap-2.5">
-            <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
-              <Wallet className="w-5 h-5 text-primary" />
+            <div className="w-10 h-10 rounded-lg bg-success/10 flex items-center justify-center">
+              <Banknote className="w-5 h-5 text-success" />
             </div>
             <div>
-              <h2 className="text-base font-semibold">Nộp tiền vào công ty</h2>
+              <h2 className="text-base font-semibold">Nộp tiền mặt cho kế toán</h2>
               <p className="text-xs text-muted-foreground mt-0.5">{affiliate.full_name}</p>
             </div>
           </div>
@@ -99,7 +84,6 @@ export function DepositModal({ open, onClose, affiliate, companyBanks }: Props) 
         </div>
 
         <form onSubmit={handleSubmit} className="p-5 space-y-4">
-          {/* Info block */}
           <div className="grid grid-cols-2 gap-3">
             <div className="rounded-md bg-muted/40 p-3">
               <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">
@@ -141,30 +125,6 @@ export function DepositModal({ open, onClose, affiliate, companyBanks }: Props) 
 
           <div>
             <Label className="mb-1.5 block text-sm font-medium">
-              TK công ty nhận <span className="text-destructive">*</span>
-            </Label>
-            <select
-              value={bankId}
-              onChange={(e) => setBankId(e.target.value)}
-              className="h-10 w-full px-3 rounded-md border border-input bg-background text-sm"
-              required
-            >
-              <option value="">-- Chọn tài khoản công ty --</option>
-              {companyBanks.map((b) => (
-                <option key={b.id} value={b.id}>
-                  {b.bank_name} • {b.account_number}
-                </option>
-              ))}
-            </select>
-            {companyBanks.length === 0 && (
-              <p className="text-xs text-destructive mt-1">
-                Chưa có TK công ty. Vào Cài đặt → Tài khoản ngân hàng để thêm.
-              </p>
-            )}
-          </div>
-
-          <div>
-            <Label className="mb-1.5 block text-sm font-medium">
               Ngày nộp <span className="text-destructive">*</span>
             </Label>
             <Input
@@ -186,12 +146,16 @@ export function DepositModal({ open, onClose, affiliate, companyBanks }: Props) 
             />
           </div>
 
+          <div className="rounded-md bg-muted/30 p-3 text-xs text-muted-foreground">
+            💡 Ghi nhận affiliate đã nộp tiền mặt cho kế toán. Sau này kế toán sẽ nộp số tiền này vào TK ngân hàng công ty từ trang <strong>Sổ ngân hàng</strong>.
+          </div>
+
           <div className="flex gap-2 pt-2">
             <Button type="button" variant="outline" onClick={onClose} className="flex-1">
               Hủy
             </Button>
-            <Button type="submit" disabled={loading || companyBanks.length === 0} className="flex-1">
-              {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wallet className="w-4 h-4" />}
+            <Button type="submit" disabled={loading} className="flex-1">
+              {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Banknote className="w-4 h-4" />}
               Xác nhận nộp tiền
             </Button>
           </div>

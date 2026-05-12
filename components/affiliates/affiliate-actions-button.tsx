@@ -2,16 +2,9 @@
 
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Wallet, FileSpreadsheet } from "lucide-react";
+import { Banknote, FileSpreadsheet } from "lucide-react";
 import { DepositModal } from "./deposit-modal";
 import { AnnualExportModal } from "./annual-export-modal";
-
-interface BankAccount {
-  id: string;
-  bank_name: string;
-  account_number: string;
-  account_holder: string;
-}
 
 interface Props {
   affiliate: {
@@ -20,18 +13,17 @@ interface Props {
     received_total: number;
     undeposited: number;
   };
-  companyBanks: BankAccount[];
 }
 
-export function AffiliateActionsButton({ affiliate, companyBanks }: Props) {
+export function AffiliateActionsButton({ affiliate }: Props) {
   const [depositOpen, setDepositOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
 
   return (
     <>
       <Button variant="default" size="sm" onClick={() => setDepositOpen(true)}>
-        <Wallet className="w-3.5 h-3.5" />
-        Nộp tiền
+        <Banknote className="w-3.5 h-3.5" />
+        Nộp tiền mặt
       </Button>
 
       <Button variant="outline" size="sm" onClick={() => setExportOpen(true)}>
@@ -43,7 +35,6 @@ export function AffiliateActionsButton({ affiliate, companyBanks }: Props) {
         open={depositOpen}
         onClose={() => setDepositOpen(false)}
         affiliate={affiliate}
-        companyBanks={companyBanks}
       />
 
       <AnnualExportModal
