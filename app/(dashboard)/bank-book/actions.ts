@@ -42,43 +42,45 @@ export async function createBankTransaction(input: CreateBankTxnInput) {
   return { data };
 }
 
-export interface UpdateBankTxnInput {
-  id: string;
+export interface BankTxnUpdates {
   bank_account_id?: string;
   trans_type?: "income" | "expense";
   trans_date?: string;
   amount?: number;
   description?: string;
-  notes?: string;
+  notes?: string | null;
   category_id?: string | null;
   account_id?: string | null;
 }
 
-export async function updateBankTransaction(input: UpdateBankTxnInput) {
+// ✨ Signature: updateBankTransaction(id, updates) — tương thích code cũ
+export async function updateBankTransaction(id: string, updates: BankTxnUpdates) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Bạn cần đăng nhập" };
 
   const updateData: Record<string, unknown> = {};
-  if (input.bank_account_id !== undefined) updateData.bank_account_id = input.bank_account_id;
-  if (input.trans_type !== undefined) updateData.trans_type = input.trans_type;
-  if (input.trans_date !== undefined) updateData.trans_date = input.trans_date;
-  if (input.amount !== undefined) {
-    if (input.amount <= 0) return { error: "Số tiền phải lớn hơn 0" };
-    updateData.amount = input.amount;
+  if (updates.bank_account_id !== undefined) updateData.bank_account_id = updates.bank_account_id;
+  if (updates.trans_type !== undefined) updateData.trans_type = updates.trans_type;
+  if (updates.trans_date !== undefined) updateData.trans_date = updates.trans_date;
+  if (updates.amount !== undefined) {
+    if (updates.amount <= 0) return { error: "Số tiền phải lớn hơn 0" };
+    updateData.amount = updates.amount;
   }
-  if (input.description !== undefined) {
-    if (!input.description.trim()) return { error: "Nhập diễn giải" };
-    updateData.description = input.description.trim();
+  if (updates.description !== undefined) {
+    if (!updates.description.trim()) return { error: "Nhập diễn giải" };
+    updateData.description = updates.description.trim();
   }
-  if (input.notes !== undefined) updateData.notes = input.notes?.trim() || null;
-  if (input.category_id !== undefined) updateData.category_id = input.category_id;
-  if (input.account_id !== undefined) updateData.account_id = input.account_id;
+  if (updates.notes !== undefined) {
+    updateData.notes = updates.notes === null ? null : updates.notes?.trim() || null;
+  }
+  if (updates.category_id !== undefined) updateData.category_id = updates.category_id;
+  if (updates.account_id !== undefined) updateData.account_id = updates.account_id;
 
   const { error } = await supabase
     .from("bank_transactions")
     .update(updateData)
-    .eq("id", input.id);
+    .eq("id", id);
 
   if (error) return { error: error.message };
 
