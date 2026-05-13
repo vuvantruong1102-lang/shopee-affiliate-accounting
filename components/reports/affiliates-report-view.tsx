@@ -5,7 +5,15 @@ import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { Search, AlertTriangle, ArrowUpDown, ArrowUp, ArrowDown, Clock } from "lucide-react";
+import {
+  Search,
+  AlertTriangle,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
+  Clock,
+  Hourglass,
+} from "lucide-react";
 import { ReportPeriodSelector } from "./period-selector";
 import { formatCurrency } from "@/lib/utils";
 import { cn } from "@/lib/utils";
@@ -25,6 +33,8 @@ interface Row {
   total_deposited: number;
   undeposited: number;
   commission_count: number;
+  shopee_processing_gross?: number;
+  shopee_processing_net?: number;
 }
 
 interface Props {
@@ -36,8 +46,25 @@ interface Props {
   previousLabel: string;
 }
 
-type SortKey = "name" | "gross" | "net" | "pending" | "received" | "deposited" | "undeposited" | "count";
+type SortKey =
+  | "name"
+  | "count"
+  | "totalNet"
+  | "processing"
+  | "pending"
+  | "received"
+  | "deposited"
+  | "undeposited";
 type SortDir = "asc" | "desc";
+
+// Tổng HH Net = Đã nhận + Shopee chưa chuyển + Shopee đang xử lý (Net)
+function computeTotalNet(r: Row): number {
+  return (
+    Number(r.received_net) +
+    Number(r.pending_net) +
+    Number(r.shopee_processing_net ?? 0)
+  );
+}
 
 export function AffiliatesReportView({
   from,
@@ -48,7 +75,7 @@ export function AffiliatesReportView({
   previousLabel,
 }: Props) {
   const [search, setSearch] = useState("");
-  const [sortKey, setSortKey] = useState<SortKey>("net");
+  const [sortKey, setSortKey] = useState<SortKey>("totalNet");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
 
   // Filter + sort
@@ -62,10 +89,16 @@ export function AffiliatesReportView({
       switch (sortKey) {
         case "name":
           return a.affiliate_name.localeCompare(b.affiliate_name) * dir;
-        case "gross":
-          return (Number(a.total_gross) - Number(b.total_gross)) * dir;
-        case "net":
-          return (Number(a.total_net) - Number(b.total_net)) * dir;
+        case "count":
+          return (Number(a.commission_count) - Number(b.commission_count)) * dir;
+        case "totalNet":
+          return (computeTotalNet(a) - computeTotalNet(b)) * dir;
+        case "processing":
+          return (
+            (Number(a.shopee_processing_net ?? 0) -
+              Number(b.shopee_processing_net ?? 0)) *
+            dir
+          );
         case "pending":
           return (Number(a.pending_net) - Number(b.pending_net)) * dir;
         case "received":
@@ -74,8 +107,6 @@ export function AffiliatesReportView({
           return (Number(a.total_deposited) - Number(b.total_deposited)) * dir;
         case "undeposited":
           return (Number(a.undeposited) - Number(b.undeposited)) * dir;
-        case "count":
-          return (Number(a.commission_count) - Number(b.commission_count)) * dir;
       }
     });
     return result;
@@ -84,41 +115,42 @@ export function AffiliatesReportView({
   // Totals
   const totals = useMemo(() => {
     return filtered.reduce(
-      (acc, r) => ({
-        gross: acc.gross + Number(r.total_gross),
-        net: acc.net + Number(r.total_net),
-        tax: acc.tax + Number(r.total_tax),
-        received: acc.received + Number(r.received_net),
-        pending: acc.pending + Number(r.pending_net),
-        deposited: acc.deposited + Number(r.total_deposited),
-        undeposited: acc.undeposited + Number(r.undeposited),
-        count: acc.count + Number(r.commission_count),
-      }),
+      (acc, r) => {
+        const processingNet = Number(r.shopee_processing_net ?? 0);
+        const totalNet = computeTotalNet(r);
+        return {
+          count: acc.count + Number(r.commission_count),
+          totalNet: acc.totalNet + totalNet,
+          received: acc.received + Number(r.received_net),
+          pending: acc.pending + Number(r.pending_net),
+          processing: acc.processing + processingNet,
+          deposited: acc.deposited + Number(r.total_deposited),
+          undeposited: acc.undeposited + Number(r.undeposited),
+        };
+      },
       {
-        gross: 0,
-        net: 0,
-        tax: 0,
+        count: 0,
+        totalNet: 0,
         received: 0,
         pending: 0,
+        processing: 0,
         deposited: 0,
         undeposited: 0,
-        count: 0,
       },
     );
   }, [filtered]);
 
-  // Total period trước - vẫn giữ để hiển thị ở KPI tổng
+  // Total period trước - dùng cho KPI so sánh
   const previousTotals = useMemo(() => {
     return previous.reduce(
       (acc, r) => ({
-        gross: acc.gross + Number(r.total_gross),
-        net: acc.net + Number(r.total_net),
+        totalNet: acc.totalNet + computeTotalNet(r),
       }),
-      { gross: 0, net: 0 },
+      { totalNet: 0 },
     );
   }, [previous]);
 
-  const totalChange = formatChange(totals.net, previousTotals.net);
+  const totalChange = formatChange(totals.totalNet, previousTotals.totalNet);
 
   function toggleSort(key: SortKey) {
     if (sortKey === key) {
@@ -134,9 +166,8 @@ export function AffiliatesReportView({
       "Affiliate",
       "Trạng thái",
       "Số đợt",
-      "Gross",
-      "Thuế KT",
-      "Net",
+      "Tổng HH Net",
+      "Shopee đang xử lý (Net)",
       "Shopee chưa chuyển",
       "Đã nhận",
       "Đã nộp",
@@ -146,9 +177,8 @@ export function AffiliatesReportView({
       a.affiliate_name,
       a.affiliate_status,
       Number(a.commission_count),
-      Number(a.total_gross),
-      Number(a.total_tax),
-      Number(a.total_net),
+      computeTotalNet(a),
+      Number(a.shopee_processing_net ?? 0),
       Number(a.pending_net),
       Number(a.received_net),
       Number(a.total_deposited),
@@ -159,9 +189,8 @@ export function AffiliatesReportView({
       "TỔNG CỘNG",
       "",
       totals.count,
-      totals.gross,
-      totals.tax,
-      totals.net,
+      totals.totalNet,
+      totals.processing,
       totals.pending,
       totals.received,
       totals.deposited,
@@ -187,12 +216,17 @@ export function AffiliatesReportView({
       <div className="grid gap-4 md:grid-cols-4">
         <Card>
           <CardContent className="p-5">
-            <p className="text-xs text-muted-foreground font-medium">Tổng Net (kỳ này)</p>
+            <p className="text-xs text-muted-foreground font-medium">
+              Tổng HH Net (kỳ này)
+            </p>
             <p className="text-xl font-semibold mt-2 tabular-nums">
-              {formatCurrency(totals.net)}
+              {formatCurrency(totals.totalNet)}
             </p>
             <p className={cn("text-xs mt-2 font-medium", totalChange.className)}>
               {totalChange.text} vs {previousLabel}
+            </p>
+            <p className="text-[10px] text-muted-foreground mt-0.5">
+              Đã nhận + Chưa chuyển + Đang xử lý
             </p>
           </CardContent>
         </Card>
@@ -217,7 +251,9 @@ export function AffiliatesReportView({
         </Card>
         <Card className={totals.undeposited > 1000000 ? "border-warning/30" : ""}>
           <CardContent className="p-5">
-            <p className="text-xs text-muted-foreground font-medium">Đang cầm chưa nộp</p>
+            <p className="text-xs text-muted-foreground font-medium">
+              Đang cầm chưa nộp
+            </p>
             <p
               className={cn(
                 "text-xl font-semibold mt-2 tabular-nums",
@@ -238,7 +274,7 @@ export function AffiliatesReportView({
         <CardHeader>
           <div className="flex items-center justify-between gap-4 flex-wrap">
             <CardTitle className="text-base">
-              {filtered.length} affiliate có hoa hồng trong kỳ
+              {filtered.length} affiliate trong kỳ
             </CardTitle>
             <div className="relative print:hidden">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
@@ -273,16 +309,16 @@ export function AffiliatesReportView({
                     align="center"
                   />
                   <SortableHeader
-                    label="Gross"
-                    sortKey="gross"
+                    label="Tổng HH Net"
+                    sortKey="totalNet"
                     currentSort={sortKey}
                     currentDir={sortDir}
                     onClick={toggleSort}
                     align="right"
                   />
                   <SortableHeader
-                    label="Net"
-                    sortKey="net"
+                    label="Shopee đang xử lý"
+                    sortKey="processing"
                     currentSort={sortKey}
                     currentDir={sortDir}
                     onClick={toggleSort}
@@ -326,11 +362,14 @@ export function AffiliatesReportView({
                 {filtered.length === 0 ? (
                   <tr>
                     <td colSpan={8} className="px-6 py-12 text-center text-muted-foreground">
-                      Không có affiliate nào có hoa hồng trong khoảng thời gian này
+                      Không có affiliate nào trong khoảng thời gian này
                     </td>
                   </tr>
                 ) : (
                   filtered.map((a) => {
+                    const totalNet = computeTotalNet(a);
+                    const processingNet = Number(a.shopee_processing_net ?? 0);
+
                     return (
                       <tr
                         key={a.affiliate_id}
@@ -355,11 +394,18 @@ export function AffiliatesReportView({
                         <td className="px-6 py-3 text-center tabular-nums text-muted-foreground">
                           {a.commission_count}
                         </td>
-                        <td className="px-6 py-3 text-right tabular-nums">
-                          {formatCurrency(a.total_gross)}
+                        <td className="px-6 py-3 text-right tabular-nums font-semibold">
+                          {formatCurrency(totalNet)}
                         </td>
-                        <td className="px-6 py-3 text-right tabular-nums font-medium">
-                          {formatCurrency(a.total_net)}
+                        <td className="px-6 py-3 text-right tabular-nums">
+                          {processingNet > 0 ? (
+                            <span className="text-purple-500 font-medium inline-flex items-center gap-1">
+                              <Hourglass className="w-3 h-3" />
+                              {formatCurrency(processingNet)}
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
                         </td>
                         <td className="px-6 py-3 text-right tabular-nums">
                           {Number(a.pending_net) > 0 ? (
@@ -375,7 +421,9 @@ export function AffiliatesReportView({
                           {formatCurrency(a.received_net)}
                         </td>
                         <td className="px-6 py-3 text-right tabular-nums">
-                          {formatCurrency(a.total_deposited)}
+                          {Number(a.total_deposited) > 0
+                            ? formatCurrency(a.total_deposited)
+                            : <span className="text-muted-foreground">—</span>}
                         </td>
                         <td className="px-6 py-3 text-right tabular-nums">
                           {Number(a.undeposited) > 1000000 ? (
@@ -400,12 +448,14 @@ export function AffiliatesReportView({
                 <tfoot>
                   <tr className="border-t-2 border-border font-semibold bg-muted/30">
                     <td className="px-6 py-3">Tổng cộng</td>
-                    <td className="px-6 py-3 text-center tabular-nums">{totals.count}</td>
-                    <td className="px-6 py-3 text-right tabular-nums">
-                      {formatCurrency(totals.gross)}
+                    <td className="px-6 py-3 text-center tabular-nums">
+                      {totals.count}
                     </td>
                     <td className="px-6 py-3 text-right tabular-nums">
-                      {formatCurrency(totals.net)}
+                      {formatCurrency(totals.totalNet)}
+                    </td>
+                    <td className="px-6 py-3 text-right tabular-nums text-purple-500">
+                      {formatCurrency(totals.processing)}
                     </td>
                     <td className="px-6 py-3 text-right tabular-nums text-warning">
                       {formatCurrency(totals.pending)}
