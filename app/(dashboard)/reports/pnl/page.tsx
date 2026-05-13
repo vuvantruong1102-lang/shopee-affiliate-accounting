@@ -50,29 +50,26 @@ interface BreakdownRow {
 }
 
 export interface PnlData extends PnlRawData {
-  tax_payable: number;
-  tax_additional: number;        // ✨ Thuế còn thiếu (luôn ≥ 0)
+  tax_progressive: number;     // Thuế lũy tiến (tham khảo)
+  tax_payable: number;         // ✨ Tổng thuế phải nộp = Tạm + Thiếu (KHÔNG bao giờ < Tạm)
+  tax_additional: number;      // Thuế còn thiếu = max(0, Lũy tiến - Tạm)
   profit_loss: number;
   profit_margin: number;
 }
 
 /**
- * Tính tổng thuế phải nộp CẢ NĂM cho tất cả affiliate active.
+ * Tính tổng thuế lũy tiến CẢ NĂM cho tất cả affiliate active.
  * 
- * Logic:
- * - Với mỗi affiliate active/paused:
- *   - Gross năm = SUM(commissions trong CẢ NĂM) + shopee_processing_amount
- *   - Lương năm = monthly × 12 (nếu has_company_salary)
- *   - Giảm trừ năm = (15.5tr + 6.2tr × dep) × 12
- *   - Áp lũy tiến 5 bậc THEO NĂM
- *   - tax_aff = thuế phải nộp năm
- * - Tổng = SUM(tax_aff)
+ * Trả về 2 số:
+ * - taxProgressive: tổng thuế theo lũy tiến (luật thuế gốc)
+ * - taxWithheld: tổng thuế Shopee đã KT 10%
  * 
- * KHÔNG phụ thuộc period (luôn lấy thuế cả năm hiện tại).
+ * Tổng thuế phải nộp (UI) = max(taxProgressive, taxWithheld)
+ * Vì theo logic: nếu tạm nộp > lũy tiến thì cũng KHÔNG hoàn.
  */
-async function calculateTotalTaxPayable(
+async function calculateTotalTax(
   supabase: Awaited<ReturnType<typeof createClient>>,
-): Promise<number> {
+): Promise<{ taxProgressive: number; taxWithheld: number }> {
   const currentYear = new Date().getFullYear();
   const yearStart = `${currentYear}-01-01`;
   const yearEnd = `${currentYear}-12-31`;
@@ -104,7 +101,6 @@ async function calculateTotalTaxPayable(
     amount: number | string;
   }>;
 
-  // Map gross + tax theo affiliate (từ commissions cả năm)
   const ytdMap = new Map<string, { gross: number; tax: number }>();
   for (const c of commissions) {
     const entry = ytdMap.get(c.account_id) ?? { gross: 0, tax: 0 };
@@ -113,27 +109,28 @@ async function calculateTotalTaxPayable(
     ytdMap.set(c.account_id, entry);
   }
 
-  // Map processing (Gross) theo affiliate
   const processingMap = new Map<string, number>();
   for (const p of processing) {
     processingMap.set(p.affiliate_id, Number(p.amount));
   }
 
-  let totalTaxPayable = 0;
+  let totalTaxProgressive = 0;
+  let totalTaxWithheld = 0;
+
   for (const a of affiliates) {
     const ytd = ytdMap.get(a.id) ?? { gross: 0, tax: 0 };
     const processingGross = processingMap.get(a.id) ?? 0;
-    // Thuế Shopee đã KT 10% trên processing
     const processingTax = Math.round(processingGross * 0.10);
 
-    // ✨ Gross năm = commissions + processing
     const totalShopeeGross = ytd.gross + processingGross;
     const totalShopeeTax = ytd.tax + processingTax;
+
+    totalTaxWithheld += totalShopeeTax;
 
     if (totalShopeeGross === 0 && !a.has_company_salary) continue;
 
     const result = calculateYtdAdditionalTax({
-      monthsElapsed: 12,  // bỏ qua, hàm luôn tính 12
+      monthsElapsed: 12,
       monthlySalaryGross: a.has_company_salary ? Number(a.monthly_salary_gross) : 0,
       monthlySalaryTaxWithheld: a.has_company_salary
         ? Number(a.monthly_salary_tax_withheld)
@@ -144,10 +141,13 @@ async function calculateTotalTaxPayable(
       dependentCount: a.dependent_count,
     });
 
-    totalTaxPayable += result.taxPayableYtd;
+    totalTaxProgressive += result.taxPayableYtd;
   }
 
-  return Math.round(totalTaxPayable);
+  return {
+    taxProgressive: Math.round(totalTaxProgressive),
+    taxWithheld: Math.round(totalTaxWithheld),
+  };
 }
 
 export default async function PnlReportPage({ searchParams }: PageProps) {
@@ -159,8 +159,8 @@ export default async function PnlReportPage({ searchParams }: PageProps) {
   const supabase = await createClient();
   const comparison = getPreviousPeriod(from, to);
 
-  // ✨ Thuế cả năm: tính 1 lần, dùng cho cả current và previous (số cố định)
-  const annualTaxPayable = await calculateTotalTaxPayable(supabase);
+  // ✨ Thuế cả năm: tính 1 lần (số cố định)
+  const annualTax = await calculateTotalTax(supabase);
 
   const [
     currentRawRes,
@@ -192,20 +192,30 @@ export default async function PnlReportPage({ searchParams }: PageProps) {
     total_expense: 0,
   };
 
-  function build(raw: PnlRawData, taxPayable: number): PnlData {
-    // Thuế còn thiếu = max(0, Tổng phải nộp - Tạm nộp Shopee KT)
-    const taxAdditional = Math.max(
-      0,
-      taxPayable - Number(raw.total_commission_tax_withheld),
-    );
+  function build(raw: PnlRawData): PnlData {
+    // ✨ Logic mới: Tổng thuế phải nộp = max(Lũy tiến, Tạm nộp)
+    // Lý do: theo yêu cầu user, "được hoàn = 0" tức là không cho hoàn lại,
+    // nên nếu tạm nộp > lũy tiến thì coi như đóng theo tạm nộp (không thiếu, không hoàn).
+    
+    const taxWithheld = Number(raw.total_commission_tax_withheld);
+    const taxProgressive = annualTax.taxProgressive;
+    
+    // Thuế còn thiếu = phần lũy tiến vượt tạm nộp (≥ 0)
+    const taxAdditional = Math.max(0, taxProgressive - taxWithheld);
+    
+    // Tổng thuế phải nộp = Tạm + Thiếu = max(Tạm, Lũy tiến)
+    const taxPayable = taxWithheld + taxAdditional;
+
     // Lãi = Gross - Tổng thuế phải nộp - Chi phí
     const profit = Number(raw.revenue_gross) - taxPayable - Number(raw.total_expense);
     const margin =
       Number(raw.revenue_gross) > 0
         ? (profit / Number(raw.revenue_gross)) * 100
         : 0;
+
     return {
       ...raw,
+      tax_progressive: taxProgressive,
       tax_payable: taxPayable,
       tax_additional: taxAdditional,
       profit_loss: profit,
@@ -213,14 +223,8 @@ export default async function PnlReportPage({ searchParams }: PageProps) {
     };
   }
 
-  const current = build(
-    (currentRawRes.data ?? emptyRaw) as PnlRawData,
-    annualTaxPayable,
-  );
-  const previous = build(
-    (previousRawRes.data ?? emptyRaw) as PnlRawData,
-    annualTaxPayable,  // ✨ giống current vì thuế cả năm cố định
-  );
+  const current = build((currentRawRes.data ?? emptyRaw) as PnlRawData);
+  const previous = build((previousRawRes.data ?? emptyRaw) as PnlRawData);
   const breakdown = (breakdownRes.data ?? []) as BreakdownRow[];
 
   const label = formatDateRangeLabel(from, to);
