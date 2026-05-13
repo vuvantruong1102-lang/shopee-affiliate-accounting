@@ -22,49 +22,35 @@ import {
 const MONTHS_PER_YEAR = 12;
 
 export interface YtdTaxInput {
-  // Số tháng đã qua trong năm (kept for backward compat, KHÔNG dùng để scale)
-  monthsElapsed: number;
-  // Lương trung bình tháng từ công ty (gross) — sẽ được nhân cho 12
+  monthsElapsed: number;          // KEPT for compat, IGNORED in calculation
   monthlySalaryGross: number;
-  // Thuế công ty khấu trừ trung bình mỗi tháng — sẽ được nhân cho 12
   monthlySalaryTaxWithheld: number;
-  // Tổng hoa hồng Shopee từ đầu năm (gross) — dùng số thật, không scale
   ytdShopeeGross: number;
-  // Tổng thuế Shopee đã khấu trừ 10%
   ytdShopeeTaxWithheld: number;
-  // Có được giảm trừ bản thân không
   hasPersonalDeduction: boolean;
-  // Số người phụ thuộc
   dependentCount: number;
 }
 
 export interface YtdTaxResult {
-  // Tổng năm (cho quyết toán)
   totalIncomeYtd: number;        // = lương 12 tháng + Shopee YTD
   totalDeductionYtd: number;     // = (15.5tr + 6.2tr × dep) × 12
-  taxableIncomeYtd: number;      // = max(0, totalIncome - totalDeduction)
-
-  // Phân tích thuế
-  taxPayableYtd: number;          // = thuế áp bậc năm
-  taxWithheldYtd: number;         // = lương KT × 12 + Shopee KT
-  taxAdditional: number;          // > 0: phải nộp, < 0: được hoàn
-
-  // Chi tiết để hiển thị/debug
+  taxableIncomeYtd: number;
+  taxPayableYtd: number;         // áp bậc năm
+  taxWithheldYtd: number;        // lương KT × 12 + Shopee KT
+  taxAdditional: number;
   breakdown: {
     salaryGross: number;          // monthly × 12
-    shopeeGross: number;          // ytdShopeeGross
+    shopeeGross: number;
     personalDeduction: number;    // 15.5tr × 12
-    dependentDeduction: number;   // 6.2tr × dep × 12
+    dependentDeduction: number;
     salaryTaxWithheld: number;    // monthly × 12
     shopeeTaxWithheld: number;
   };
-
   status: "owe" | "refund" | "even" | "no_data";
 }
 
 export function calculateYtdAdditionalTax(input: YtdTaxInput): YtdTaxResult {
-  // ✨ Bỏ qua monthsElapsed, luôn tính cho cả năm (12 tháng)
-  // Theo luật VN: cá nhân quyết toán theo năm
+  // ✨ Luôn tính cho cả năm (12 tháng) - bỏ qua monthsElapsed
   const months = MONTHS_PER_YEAR;
 
   // 1. Tổng thu nhập NĂM
@@ -83,7 +69,7 @@ export function calculateYtdAdditionalTax(input: YtdTaxInput): YtdTaxResult {
   // 3. Thu nhập tính thuế NĂM
   const taxableIncomeYtd = Math.max(0, totalIncomeYtd - totalDeductionYtd);
 
-  // 4. ✨ Thuế phải nộp — áp BẬC NĂM trực tiếp (không chia/nhân tháng)
+  // 4. Thuế phải nộp - áp BẬC NĂM trực tiếp
   const taxPayableYtd = calculateTaxAnnualDirect(taxableIncomeYtd);
 
   // 5. Thuế đã khấu trừ NĂM

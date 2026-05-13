@@ -24,19 +24,18 @@ export const VANG_LAI_TAX_RATE = 0.10;
 export const VANG_LAI_THRESHOLD = 2_000_000;
 
 // ============================================================================
-// BIỂU THUẾ LŨY TIẾN 5 BẬC (LUẬT 2026)
-// Theo Khoản 2, Điều 9 Luật Thuế TNCN 2025 (109/2025/QH15)
+// BIỂU THUẾ LŨY TIẾN 5 BẬC THEO THÁNG (giữ cho legacy)
 // ============================================================================
 export const TAX_BRACKETS_MONTHLY = [
   { upTo: 10_000_000, rate: 0.05, base: 0 },
-  { upTo: 30_000_000, rate: 0.10, base: 500_000 },        // 10tr×5%
-  { upTo: 60_000_000, rate: 0.20, base: 2_500_000 },      // 500k + 20tr×10%
-  { upTo: 100_000_000, rate: 0.30, base: 8_500_000 },     // 2.5tr + 30tr×20%
-  { upTo: Infinity, rate: 0.35, base: 20_500_000 },       // 8.5tr + 40tr×30%
+  { upTo: 30_000_000, rate: 0.10, base: 500_000 },
+  { upTo: 60_000_000, rate: 0.20, base: 2_500_000 },
+  { upTo: 100_000_000, rate: 0.30, base: 8_500_000 },
+  { upTo: Infinity, rate: 0.35, base: 20_500_000 },
 ] as const;
 
 // ============================================================================
-// ✨ MỚI: BIỂU THUẾ LŨY TIẾN 5 BẬC THEO NĂM (= bậc tháng × 12)
+// ✨ BIỂU THUẾ LŨY TIẾN 5 BẬC THEO NĂM (= bậc tháng × 12)
 // Dùng cho quyết toán cuối năm (luật VN: cá nhân quyết toán theo NĂM)
 // ============================================================================
 export const TAX_BRACKETS_ANNUAL = [
@@ -72,7 +71,7 @@ export interface TaxCalculationResult {
 }
 
 // ============================================================================
-// TÍNH THUẾ THEO BIỂU LŨY TIẾN (cho 1 tháng) - giữ nguyên cho legacy
+// TÍNH THUẾ THEO BIỂU LŨY TIẾN (cho 1 tháng) - giữ cho legacy
 // ============================================================================
 export function calculateTaxMonthly(taxableIncomeMonthly: number): number {
   if (taxableIncomeMonthly <= 0) return 0;
@@ -91,8 +90,7 @@ export function calculateTaxMonthly(taxableIncomeMonthly: number): number {
 }
 
 // ============================================================================
-// ✨ MỚI: TÍNH THUẾ THEO BẬC NĂM (áp trực tiếp lên TNTT năm)
-// Đây là cách quyết toán chuẩn của luật VN
+// ✨ TÍNH THUẾ THEO BẬC NĂM (áp trực tiếp lên TNTT năm)
 // ============================================================================
 export function calculateTaxAnnualDirect(taxableIncomeAnnual: number): number {
   if (taxableIncomeAnnual <= 0) return 0;
@@ -111,16 +109,16 @@ export function calculateTaxAnnualDirect(taxableIncomeAnnual: number): number {
 }
 
 // ============================================================================
-// ✨ MỚI: Bracket breakdown theo NĂM (cho UI hiển thị bảng bậc)
+// ✨ Bracket breakdown theo NĂM (cho UI hiển thị bảng bậc)
 // ============================================================================
 export interface AnnualBracketDetail {
-  bracketIndex: number;          // 1-5
-  bracketRange: string;           // "Đến 120 triệu" / "120-360 triệu"
-  rate: number;                   // 0.05, 0.10, ...
+  bracketIndex: number;
+  bracketRange: string;
+  rate: number;
   bracketMin: number;
   bracketMax: number;
-  incomeInBracket: number;        // Phần TNTT năm rơi vào bậc này
-  taxInBracket: number;           // Thuế của bậc này
+  incomeInBracket: number;
+  taxInBracket: number;
 }
 
 export function getAnnualBracketBreakdown(
@@ -136,12 +134,21 @@ export function getAnnualBracketBreakdown(
     const incomeInBracket = Math.min(remaining, bracketSize);
     const taxInBracket = incomeInBracket * bracket.rate;
 
+    const labelMin = (prevUpTo / 1_000_000).toFixed(0);
+    let label: string;
+    if (bracket.upTo === Infinity) {
+      label = `Trên ${labelMin}tr`;
+    } else if (prevUpTo === 0) {
+      label = `Đến ${(bracket.upTo / 1_000_000).toFixed(0)}tr`;
+    } else if (bracket.upTo >= 1_000_000_000) {
+      label = `${labelMin}tr - ${(bracket.upTo / 1_000_000_000).toFixed(1)} tỷ`;
+    } else {
+      label = `${labelMin}-${(bracket.upTo / 1_000_000).toFixed(0)}tr`;
+    }
+
     details.push({
       bracketIndex: i + 1,
-      bracketRange:
-        bracket.upTo === Infinity
-          ? `Trên ${(prevUpTo / 1_000_000).toFixed(0)} triệu`
-          : `${(prevUpTo / 1_000_000).toFixed(0)} - ${(bracket.upTo / 1_000_000).toFixed(0)} triệu`,
+      bracketRange: label,
       rate: bracket.rate,
       bracketMin: prevUpTo,
       bracketMax: bracket.upTo,
@@ -157,8 +164,7 @@ export function getAnnualBracketBreakdown(
 }
 
 // ============================================================================
-// TÍNH THUẾ CẢ NĂM (cho quyết toán) - giữ cho code cũ, nhưng đã cập nhật để
-// dùng calculateTaxAnnualDirect thay vì calculateTaxMonthly × 12
+// TÍNH THUẾ CẢ NĂM (cho quyết toán)
 // ============================================================================
 export function calculateAnnualTax(
   input: TaxCalculationInput,
@@ -171,10 +177,8 @@ export function calculateAnnualTax(
   const totalDeduction = personalDeduction + dependentDeduction;
   const taxableIncome = Math.max(0, grossIncome - totalDeduction);
 
-  // ✨ Dùng bậc năm trực tiếp (không chia/nhân tháng)
   const taxPayable = calculateTaxAnnualDirect(taxableIncome);
 
-  // Breakdown theo bậc năm
   const annualBreakdown = getAnnualBracketBreakdown(taxableIncome);
   const bracketDetails: TaxCalculationResult["bracketDetails"] =
     annualBreakdown.map((b) => ({
@@ -201,7 +205,7 @@ export function calculateAnnualTax(
 }
 
 // ============================================================================
-// KHẤU TRỪ THUẾ VÃNG LAI (10% cho thu nhập ≥ 2tr/lần)
+// KHẤU TRỪ THUẾ VÃNG LAI
 // ============================================================================
 export function calculateWithholdingTax(grossAmount: number): number {
   if (grossAmount < VANG_LAI_THRESHOLD) return 0;
