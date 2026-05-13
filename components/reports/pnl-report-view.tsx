@@ -17,6 +17,7 @@ interface PnlData {
   revenue_gross_pending: number;
   revenue_gross_processing: number;
   total_commission_tax_withheld: number;
+  tax_progressive: number;
   tax_payable: number;
   tax_additional: number;
   expense_marketing: number;
@@ -95,13 +96,9 @@ export function PnlReportView({
     const pctOfStr = (v: number) => (gross > 0 ? ((v / gross) * 100).toFixed(2) + "%" : "");
 
     rows.push(["=== DOANH THU ==="]);
-    rows.push(["Doanh thu Gross (Tổng)", gross, "100%"]);
-    rows.push(["  HH Gross đã chuyển", Number(current.revenue_gross_received), pctOfStr(Number(current.revenue_gross_received))]);
-    rows.push(["  HH Gross chưa chuyển", Number(current.revenue_gross_pending), pctOfStr(Number(current.revenue_gross_pending))]);
-    rows.push(["  HH Gross đang xử lý", Number(current.revenue_gross_processing), pctOfStr(Number(current.revenue_gross_processing))]);
-    rows.push(["Doanh thu Net (sau Shopee KT 10%)", Number(current.revenue_net), pctOfStr(Number(current.revenue_net))]);
+    rows.push(["Doanh thu Gross", gross, "100%"]);
     rows.push([]);
-    rows.push(["=== THUẾ TNCN ==="]);
+    rows.push(["=== THUẾ TNCN (CẢ NĂM) ==="]);
     rows.push(["Tổng thuế phải nộp năm", Number(current.tax_payable), pctOfStr(Number(current.tax_payable))]);
     rows.push(["  Thuế tạm nộp (Shopee KT 10%)", Number(current.total_commission_tax_withheld), pctOfStr(Number(current.total_commission_tax_withheld))]);
     if (Number(current.tax_additional) > 0) {
@@ -214,50 +211,6 @@ export function PnlReportView({
                   </td>
                   <td className="px-6 py-2.5 text-right text-xs text-muted-foreground">
                     100%
-                  </td>
-                </tr>
-                <tr className="border-b border-border">
-                  <td className="px-6 py-2 pl-14 text-muted-foreground text-xs">
-                    HH Gross đã chuyển (Shopee đã trả)
-                  </td>
-                  <td className="px-6 py-2 text-right tabular-nums text-muted-foreground text-xs">
-                    {formatCurrency(current.revenue_gross_received)}
-                  </td>
-                  <td className="px-6 py-2 text-right text-xs text-muted-foreground tabular-nums">
-                    {pctOf(Number(current.revenue_gross_received))}%
-                  </td>
-                </tr>
-                <tr className="border-b border-border">
-                  <td className="px-6 py-2 pl-14 text-muted-foreground text-xs">
-                    HH Gross chưa chuyển (đã đối soát)
-                  </td>
-                  <td className="px-6 py-2 text-right tabular-nums text-muted-foreground text-xs">
-                    {formatCurrency(current.revenue_gross_pending)}
-                  </td>
-                  <td className="px-6 py-2 text-right text-xs text-muted-foreground tabular-nums">
-                    {pctOf(Number(current.revenue_gross_pending))}%
-                  </td>
-                </tr>
-                <tr className="border-b border-border">
-                  <td className="px-6 py-2 pl-14 text-muted-foreground text-xs">
-                    HH Gross đang xử lý (chưa đối soát)
-                  </td>
-                  <td className="px-6 py-2 text-right tabular-nums text-purple-500 text-xs">
-                    {formatCurrency(current.revenue_gross_processing)}
-                  </td>
-                  <td className="px-6 py-2 text-right text-xs text-muted-foreground tabular-nums">
-                    {pctOf(Number(current.revenue_gross_processing))}%
-                  </td>
-                </tr>
-                <tr className="border-b border-border">
-                  <td className="px-6 py-2.5 pl-10 text-muted-foreground text-xs italic">
-                    Trong đó Net (sau Shopee KT 10%)
-                  </td>
-                  <td className="px-6 py-2.5 text-right tabular-nums text-muted-foreground text-xs">
-                    {formatCurrency(current.revenue_net)}
-                  </td>
-                  <td className="px-6 py-2.5 text-right text-xs text-muted-foreground tabular-nums">
-                    {pctOf(Number(current.revenue_net))}%
                   </td>
                 </tr>
 
