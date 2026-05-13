@@ -68,7 +68,7 @@ export default async function TaxDetailPage({ params }: PageProps) {
 
   // ✨ Tính thuế CẢ NĂM (luật VN quyết toán theo năm)
   const ytdResult = calculateYtdAdditionalTax({
-    monthsElapsed,  // không còn ảnh hưởng, nhưng giữ để compat
+    monthsElapsed,
     monthlySalaryGross: a.has_company_salary ? Number(a.monthly_salary_gross) : 0,
     monthlySalaryTaxWithheld: a.has_company_salary ? Number(a.monthly_salary_tax_withheld) : 0,
     ytdShopeeGross: ytdGross,
