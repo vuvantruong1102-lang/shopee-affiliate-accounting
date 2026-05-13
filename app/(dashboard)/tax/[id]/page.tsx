@@ -1,17 +1,12 @@
 import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { createClient } from "@/lib/supabase/server";
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { ChevronLeft, TrendingUp, TrendingDown, Receipt, FileSpreadsheet } from "lucide-react";
+import { ChevronLeft } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
 import { calculateYtdAdditionalTax } from "@/lib/ytd-tax";
-import {
-  PERSONAL_DEDUCTION_MONTHLY,
-  DEPENDENT_DEDUCTION_MONTHLY,
-} from "@/lib/tax-calculator";
 import { TaxBreakdown } from "@/components/tax/tax-breakdown";
 import { TaxExportButtons } from "@/components/tax/tax-export-buttons";
 import type { AffiliateAccount, Commission } from "@/types/database";
@@ -48,7 +43,7 @@ export default async function TaxDetailPage({ params }: PageProps) {
 
   const commissions = (commissionsData ?? []) as Commission[];
 
-  // Tổng hợp YTD theo tháng (cho chart và bảng)
+  // Tổng hợp theo tháng (cho bảng dưới)
   const monthlyData = Array.from({ length: 12 }, (_, i) => ({
     month: i + 1,
     gross: 0,
@@ -71,8 +66,9 @@ export default async function TaxDetailPage({ params }: PageProps) {
   const ytdTax = commissions.reduce((s, c) => s + Number(c.tax_withheld), 0);
   const ytdNet = commissions.reduce((s, c) => s + Number(c.net_amount), 0);
 
+  // ✨ Tính thuế CẢ NĂM (luật VN quyết toán theo năm)
   const ytdResult = calculateYtdAdditionalTax({
-    monthsElapsed,
+    monthsElapsed,  // không còn ảnh hưởng, nhưng giữ để compat
     monthlySalaryGross: a.has_company_salary ? Number(a.monthly_salary_gross) : 0,
     monthlySalaryTaxWithheld: a.has_company_salary ? Number(a.monthly_salary_tax_withheld) : 0,
     ytdShopeeGross: ytdGross,
@@ -94,7 +90,7 @@ export default async function TaxDetailPage({ params }: PageProps) {
 
       <PageHeader
         title={`Thuế TNCN của ${a.full_name}`}
-        description={`Năm ${currentYear} (YTD: tháng 1-${monthsElapsed})`}
+        description={`Năm ${currentYear} · Tính theo cả năm (12 tháng) — đã nhận dữ liệu Shopee đến tháng ${monthsElapsed}`}
         action={
           <TaxExportButtons
             affiliate={a}
@@ -113,12 +109,12 @@ export default async function TaxDetailPage({ params }: PageProps) {
       <div className="grid gap-4 md:grid-cols-4">
         <Card>
           <CardContent className="p-5">
-            <p className="text-xs text-muted-foreground font-medium">Tổng thu nhập YTD</p>
+            <p className="text-xs text-muted-foreground font-medium">Tổng thu nhập năm</p>
             <p className="text-xl font-semibold mt-2 tabular-nums">
               {formatCurrency(ytdResult.totalIncomeYtd)}
             </p>
             <p className="text-xs text-muted-foreground mt-1.5">
-              HH Shopee + Lương (gross)
+              HH Shopee (YTD) + Lương cả năm
             </p>
           </CardContent>
         </Card>
@@ -135,12 +131,12 @@ export default async function TaxDetailPage({ params }: PageProps) {
         </Card>
         <Card>
           <CardContent className="p-5">
-            <p className="text-xs text-muted-foreground font-medium">Thuế phải nộp</p>
+            <p className="text-xs text-muted-foreground font-medium">Thuế phải nộp năm</p>
             <p className="text-xl font-semibold mt-2 tabular-nums">
               {formatCurrency(ytdResult.taxPayableYtd)}
             </p>
             <p className="text-xs text-muted-foreground mt-1.5">
-              Tính theo lũy tiến 5 bậc
+              Lũy tiến 5 bậc (theo năm)
             </p>
           </CardContent>
         </Card>
@@ -173,9 +169,9 @@ export default async function TaxDetailPage({ params }: PageProps) {
       {/* Breakdown chi tiết */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Chi tiết tính thuế YTD</CardTitle>
+          <CardTitle className="text-base">Chi tiết tính thuế cả năm</CardTitle>
           <p className="text-xs text-muted-foreground">
-            Áp dụng từ tháng 1 đến tháng {monthsElapsed} của năm {currentYear}
+            Áp dụng cho cả năm {currentYear} · Thu nhập Shopee hiện tại đến tháng {monthsElapsed}
           </p>
         </CardHeader>
         <CardContent>
@@ -187,6 +183,9 @@ export default async function TaxDetailPage({ params }: PageProps) {
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Thu nhập từng tháng năm {currentYear}</CardTitle>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Dữ liệu Shopee thực tế tháng 1 – {monthsElapsed}, lương ước tính cả 12 tháng
+          </p>
         </CardHeader>
         <CardContent className="p-0">
           <div className="overflow-x-auto scrollbar-thin">
@@ -231,7 +230,7 @@ export default async function TaxDetailPage({ params }: PageProps) {
               </tbody>
               <tfoot>
                 <tr className="border-t-2 border-border font-semibold bg-muted/30">
-                  <td className="px-6 py-3">Tổng YTD</td>
+                  <td className="px-6 py-3">Tổng cả năm (cho quyết toán)</td>
                   <td className="px-6 py-3 text-center tabular-nums">
                     {monthlyData.reduce((s, m) => s + m.count, 0)}
                   </td>
