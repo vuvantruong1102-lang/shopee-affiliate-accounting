@@ -123,6 +123,17 @@ export default async function AffiliateDetailPage({ params, searchParams }: Page
   const totalDeposited = cashDeposits.reduce((s, d) => s + d.amount, 0);
   const undeposited = totalReceived - totalDeposited;
 
+  // ============ ✨ SHOPEE ĐANG XỬ LÝ ============
+  const { data: processingData } = await supabase
+    .from("shopee_processing_amounts")
+    .select("amount, snapshot_date, updated_at")
+    .eq("affiliate_id", id)
+    .maybeSingle();
+
+  const shopeeProcessing = Number(processingData?.amount ?? 0);
+  const processingUpdatedAt = (processingData?.updated_at ?? null) as string | null;
+  const processingSnapshotDate = (processingData?.snapshot_date ?? null) as string | null;
+
   // ============ Activity log ============
   const activityItems: ActivityItem[] = [
     ...commissions.map((c) => ({
@@ -246,6 +257,20 @@ export default async function AffiliateDetailPage({ params, searchParams }: Page
             ? "Năm này"
             : `${filterFrom} → ${filterTo}`;
 
+  // Format subtitle cho KPI Shopee đang xử lý
+  const processingSubtitle = (() => {
+    if (shopeeProcessing === 0 && !processingUpdatedAt) {
+      return "Chưa cập nhật · Nhập ở Đối soát Shopee";
+    }
+    if (processingSnapshotDate) {
+      return `Snapshot ${formatDate(processingSnapshotDate)}`;
+    }
+    if (processingUpdatedAt) {
+      return `Cập nhật ${formatDate(processingUpdatedAt)}`;
+    }
+    return "Shopee chưa đối soát";
+  })();
+
   return (
     <div className="space-y-6 animate-fade-in">
       <div className="flex items-center gap-2 -mb-2">
@@ -296,7 +321,8 @@ export default async function AffiliateDetailPage({ params, searchParams }: Page
         </CardContent>
       </Card>
 
-      <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
+      {/* ✨ 5 KPI thay vì 4 */}
+      <div className="grid gap-4 grid-cols-2 md:grid-cols-3 lg:grid-cols-5">
         <KpiCard
           label="Tổng hoa hồng (Net)"
           value={formatCurrency(totalNet)}
@@ -327,6 +353,12 @@ export default async function AffiliateDetailPage({ params, searchParams }: Page
                 : "Đã nộp đủ"
           }
           variant={undeposited > 1_000_000 ? "warning" : "default"}
+        />
+        <KpiCard
+          label="Shopee đang xử lý"
+          value={formatCurrency(shopeeProcessing)}
+          subtitle={processingSubtitle}
+          variant="purple"
         />
       </div>
 
@@ -474,7 +506,7 @@ function KpiCard({
   label: string;
   value: string;
   subtitle: string;
-  variant?: "default" | "success" | "warning";
+  variant?: "default" | "success" | "warning" | "purple";
   warning?: boolean;
   warningText?: string;
 }) {
@@ -482,6 +514,7 @@ function KpiCard({
     default: "",
     success: "text-success",
     warning: "text-warning",
+    purple: "text-purple-500",
   }[variant];
 
   return (
