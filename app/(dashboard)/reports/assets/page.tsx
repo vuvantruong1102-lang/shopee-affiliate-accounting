@@ -13,7 +13,6 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { AssetsPieChart } from "@/components/reports/assets-pie-chart";
-import { ShopeeProcessingTable } from "@/components/reports/shopee-processing-table";
 
 interface AffiliateBreakdownItem {
   id: string;
@@ -21,15 +20,6 @@ interface AffiliateBreakdownItem {
   received: number;
   deposited: number;
   holding: number;
-}
-
-interface ProcessingItem {
-  affiliate_id: string;
-  affiliate_name: string;
-  amount: number;
-  snapshot_date: string | null;
-  updated_at: string | null;
-  notes: string | null;
 }
 
 export default async function AssetsReportPage() {
@@ -59,7 +49,6 @@ export default async function AssetsReportPage() {
     total_assets: number;
     bank_breakdown: unknown[];
     affiliate_breakdown: AffiliateBreakdownItem[];
-    processing_breakdown: ProcessingItem[];
   };
 
   const cash = Number(d.cash_balance);
@@ -74,7 +63,6 @@ export default async function AssetsReportPage() {
     return ((part / total) * 100).toFixed(1) + "%";
   }
 
-  // Data cho pie chart - 5 lát
   const pieData = [
     { name: "Tiền mặt", value: cash, color: "#10b981" },
     { name: "Tiền ngân hàng", value: bank, color: "#3b82f6" },
@@ -155,10 +143,11 @@ export default async function AssetsReportPage() {
           percent={pct(processing)}
           variant="purple"
           subtitle="Chưa đối soát thành đợt"
+          href="/reconciliation"
         />
       </div>
 
-      {/* Pie chart cơ cấu + Affiliate đang cầm */}
+      {/* Pie chart + Affiliate đang cầm */}
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
           <CardHeader>
@@ -181,7 +170,6 @@ export default async function AssetsReportPage() {
           </CardContent>
         </Card>
 
-        {/* Affiliate đang cầm */}
         <Card>
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2">
@@ -222,18 +210,15 @@ export default async function AssetsReportPage() {
         </Card>
       </div>
 
-      {/* ✨ Bảng nhập Shopee đang xử lý */}
-      <ShopeeProcessingTable items={d.processing_breakdown ?? []} />
-
       {/* Note */}
       <Card className="bg-muted/30 border-dashed">
         <CardContent className="p-4 text-xs text-muted-foreground space-y-1.5">
           <p className="font-medium text-foreground">📌 Công thức tính:</p>
           <p>• <strong>Tiền mặt</strong>: SUM(Thu) − SUM(Chi) của Sổ tiền mặt</p>
-          <p>• <strong>Tiền ngân hàng</strong>: SUM(Thu) − SUM(Chi) của Sổ ngân hàng</p>
+          <p>• <strong>Tiền ngân hàng</strong>: Số dư đầu kỳ + SUM(Thu) − SUM(Chi) của Sổ ngân hàng</p>
           <p>• <strong>Affiliate đang cầm</strong>: Σ (HH đã nhận − Tiền mặt đã nộp) của mỗi affiliate (chỉ tính khi &gt; 0)</p>
           <p>• <strong>Shopee chưa chuyển</strong>: SUM(commissions có status = pending) — đã đối soát thành đợt</p>
-          <p>• <strong>Shopee đang xử lý</strong>: Số tiền nhập thủ công từ trang Shopee Affiliate (chưa đối soát thành đợt)</p>
+          <p>• <strong>Shopee đang xử lý</strong>: Nhập tay tại trang <Link href="/reconciliation" className="text-primary hover:underline">Đối soát Shopee</Link> (cập nhật mỗi tuần)</p>
         </CardContent>
       </Card>
     </div>
@@ -270,12 +255,7 @@ function AssetCard({
   const c = colors[variant];
 
   const inner = (
-    <Card
-      className={cn(
-        "h-full",
-        href && "hover:border-primary/40 transition-colors cursor-pointer",
-      )}
-    >
+    <Card className={cn("h-full", href && "hover:border-primary/40 transition-colors cursor-pointer")}>
       <CardContent className="p-5">
         <div className="flex items-start justify-between gap-2 mb-3">
           <div className={cn("w-9 h-9 rounded-md flex items-center justify-center", c.bg)}>
