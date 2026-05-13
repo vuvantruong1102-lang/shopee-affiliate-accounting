@@ -4,61 +4,35 @@ import { formatCurrency } from "@/lib/utils";
 import {
   PERSONAL_DEDUCTION_MONTHLY,
   DEPENDENT_DEDUCTION_MONTHLY,
-  TAX_BRACKETS_MONTHLY,
-  calculateTaxMonthly,
+  getAnnualBracketBreakdown,
 } from "@/lib/tax-calculator";
 import type { AffiliateAccount } from "@/types/database";
 import type { YtdTaxResult } from "@/lib/ytd-tax";
 
 interface Props {
   ytdResult: YtdTaxResult;
-  monthsElapsed: number;
+  monthsElapsed: number;             // kept for compat, not used in display
   affiliate: AffiliateAccount;
 }
 
-export function TaxBreakdown({ ytdResult, monthsElapsed, affiliate }: Props) {
-  const r = ytdResult;
-  const tntMonthly = r.taxableIncomeYtd / monthsElapsed;
+const MONTHS_PER_YEAR = 12;
 
-  // Tính phần thuế theo từng bậc (cho TNTT/tháng)
-  const brackets: Array<{
-    label: string;
-    rate: number;
-    incomeInBracket: number;
-    taxInBracket: number;
-  }> = [];
-  let remaining = tntMonthly;
-  let prevUpTo = 0;
-  for (const b of TAX_BRACKETS_MONTHLY) {
-    if (remaining <= 0) break;
-    const bracketSize = b.upTo - prevUpTo;
-    const incomeInBracket = Math.min(remaining, bracketSize);
-    const taxInBracket = incomeInBracket * b.rate;
-    brackets.push({
-      label:
-        b.upTo === Infinity
-          ? `Trên ${(prevUpTo / 1_000_000).toFixed(0)}tr`
-          : prevUpTo === 0
-            ? `Đến ${(b.upTo / 1_000_000).toFixed(0)}tr`
-            : `${(prevUpTo / 1_000_000).toFixed(0)}-${(b.upTo / 1_000_000).toFixed(0)}tr`,
-      rate: b.rate,
-      incomeInBracket,
-      taxInBracket,
-    });
-    remaining -= incomeInBracket;
-    prevUpTo = b.upTo;
-  }
+export function TaxBreakdown({ ytdResult, affiliate }: Props) {
+  const r = ytdResult;
+
+  // ✨ Bậc theo NĂM (không chia/nhân tháng nữa)
+  const brackets = getAnnualBracketBreakdown(r.taxableIncomeYtd);
 
   return (
     <div className="space-y-4">
       {/* Bước 1: Tổng thu nhập */}
-      <Step number="1" title="Tổng thu nhập YTD">
+      <Step number="1" title="Tổng thu nhập năm">
         <div className="space-y-1.5">
           {r.breakdown.salaryGross > 0 && (
             <Row
-              label="Lương công ty (gross)"
+              label="Lương công ty (cả năm)"
               value={r.breakdown.salaryGross}
-              sub={`${monthsElapsed} tháng × ${formatCurrency(affiliate.monthly_salary_gross)}/tháng`}
+              sub={`12 tháng × ${formatCurrency(affiliate.monthly_salary_gross)}/tháng`}
             />
           )}
           <Row label="Hoa hồng Shopee (gross)" value={r.breakdown.shopeeGross} />
@@ -67,83 +41,89 @@ export function TaxBreakdown({ ytdResult, monthsElapsed, affiliate }: Props) {
       </Step>
 
       {/* Bước 2: Giảm trừ */}
-      <Step number="2" title="Các khoản giảm trừ">
+      <Step number="2" title="Các khoản giảm trừ gia cảnh (cả năm)">
         <div className="space-y-1.5">
           {affiliate.has_personal_deduction && (
             <Row
               label="Giảm trừ bản thân"
               value={r.breakdown.personalDeduction}
-              sub={`${monthsElapsed} tháng × ${formatCurrency(PERSONAL_DEDUCTION_MONTHLY)}/tháng`}
+              sub={`${formatCurrency(PERSONAL_DEDUCTION_MONTHLY)} × 12 tháng`}
             />
           )}
           {affiliate.dependent_count > 0 && (
             <Row
               label={`Giảm trừ ${affiliate.dependent_count} người phụ thuộc`}
               value={r.breakdown.dependentDeduction}
-              sub={`${monthsElapsed} tháng × ${affiliate.dependent_count} người × ${formatCurrency(DEPENDENT_DEDUCTION_MONTHLY)}/tháng`}
+              sub={`${formatCurrency(DEPENDENT_DEDUCTION_MONTHLY)} × ${affiliate.dependent_count} người × 12 tháng`}
             />
+          )}
+          {!affiliate.has_personal_deduction && affiliate.dependent_count === 0 && (
+            <div className="text-sm text-muted-foreground italic">
+              Không có khoản giảm trừ
+            </div>
           )}
           <RowTotal label="Tổng giảm trừ" value={r.totalDeductionYtd} negative />
         </div>
       </Step>
 
       {/* Bước 3: TNTT */}
-      <Step number="3" title="Thu nhập tính thuế">
-        <div className="space-y-1.5">
-          <div className="text-xs font-mono bg-muted/40 rounded p-2.5">
-            TNTT = Tổng TN − Giảm trừ ={" "}
-            <strong>{formatCurrency(r.totalIncomeYtd)}</strong> −{" "}
-            <strong>{formatCurrency(r.totalDeductionYtd)}</strong> ={" "}
-            <strong className="text-primary">{formatCurrency(r.taxableIncomeYtd)}</strong>
-          </div>
-          {r.taxableIncomeYtd > 0 && (
-            <div className="text-xs text-muted-foreground mt-1">
-              Bình quân/tháng: <strong>{formatCurrency(tntMonthly)}</strong>
-            </div>
-          )}
+      <Step number="3" title="Thu nhập tính thuế năm">
+        <div className="text-xs font-mono bg-muted/40 rounded p-2.5">
+          TNTT năm = Tổng TN − Giảm trừ ={" "}
+          <strong>{formatCurrency(r.totalIncomeYtd)}</strong> −{" "}
+          <strong>{formatCurrency(r.totalDeductionYtd)}</strong> ={" "}
+          <strong className="text-primary">{formatCurrency(r.taxableIncomeYtd)}</strong>
         </div>
       </Step>
 
-      {/* Bước 4: Tính thuế theo lũy tiến */}
+      {/* Bước 4: Tính thuế lũy tiến theo NĂM */}
       {r.taxableIncomeYtd > 0 ? (
-        <Step number="4" title="Thuế phải nộp (lũy tiến 5 bậc)">
+        <Step number="4" title="Thuế phải nộp năm (lũy tiến 5 bậc — theo NĂM)">
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
               <thead>
                 <tr className="border-b border-border text-muted-foreground">
                   <th className="text-left font-medium px-3 py-2">Bậc</th>
-                  <th className="text-right font-medium px-3 py-2">TN/tháng</th>
+                  <th className="text-right font-medium px-3 py-2">TNTT trong bậc</th>
                   <th className="text-right font-medium px-3 py-2">Thuế suất</th>
-                  <th className="text-right font-medium px-3 py-2">Thuế/tháng</th>
-                  <th className="text-right font-medium px-3 py-2">Thuế cả kỳ ({monthsElapsed}t)</th>
+                  <th className="text-right font-medium px-3 py-2">Thuế bậc này</th>
                 </tr>
               </thead>
               <tbody>
-                {brackets.map((b, i) => (
-                  <tr key={i} className="border-b border-border last:border-0">
-                    <td className="px-3 py-2">Bậc {i + 1} ({b.label})</td>
-                    <td className="px-3 py-2 text-right tabular-nums">
-                      {formatCurrency(b.incomeInBracket)}
-                    </td>
-                    <td className="px-3 py-2 text-right tabular-nums font-medium">
-                      {(b.rate * 100).toFixed(0)}%
-                    </td>
-                    <td className="px-3 py-2 text-right tabular-nums">
-                      {formatCurrency(b.taxInBracket)}
-                    </td>
-                    <td className="px-3 py-2 text-right tabular-nums font-medium">
-                      {formatCurrency(b.taxInBracket * monthsElapsed)}
-                    </td>
-                  </tr>
-                ))}
+                {brackets.map((b) => {
+                  const isReached = b.incomeInBracket > 0;
+                  return (
+                    <tr
+                      key={b.bracketIndex}
+                      className={
+                        "border-b border-border last:border-0 " +
+                        (isReached ? "" : "text-muted-foreground/60")
+                      }
+                    >
+                      <td className="px-3 py-2">
+                        Bậc {b.bracketIndex} ({b.bracketRange})
+                      </td>
+                      <td className="px-3 py-2 text-right tabular-nums">
+                        {isReached ? formatCurrency(b.incomeInBracket) : "—"}
+                      </td>
+                      <td className="px-3 py-2 text-right tabular-nums font-medium">
+                        {(b.rate * 100).toFixed(0)}%
+                      </td>
+                      <td className="px-3 py-2 text-right tabular-nums font-medium">
+                        {isReached ? formatCurrency(b.taxInBracket) : "—"}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
               <tfoot>
                 <tr className="border-t-2 border-border font-semibold bg-muted/30">
-                  <td colSpan={3} className="px-3 py-2">Tổng thuế phải nộp</td>
+                  <td className="px-3 py-2">Tổng thuế phải nộp năm</td>
                   <td className="px-3 py-2 text-right tabular-nums">
-                    {formatCurrency(calculateTaxMonthly(tntMonthly))}
+                    {formatCurrency(r.taxableIncomeYtd)}
                   </td>
-                  <td className="px-3 py-2 text-right tabular-nums">
+                  <td></td>
+                  <td className="px-3 py-2 text-right tabular-nums text-warning">
                     {formatCurrency(r.taxPayableYtd)}
                   </td>
                 </tr>
@@ -152,7 +132,7 @@ export function TaxBreakdown({ ytdResult, monthsElapsed, affiliate }: Props) {
           </div>
         </Step>
       ) : (
-        <Step number="4" title="Thuế phải nộp">
+        <Step number="4" title="Thuế phải nộp năm">
           <div className="text-sm text-muted-foreground p-3 rounded-md bg-muted/40">
             Thu nhập tính thuế ≤ 0, <strong>không phát sinh thuế phải nộp</strong>.
           </div>
@@ -164,12 +144,15 @@ export function TaxBreakdown({ ytdResult, monthsElapsed, affiliate }: Props) {
         <div className="space-y-1.5">
           {r.breakdown.salaryTaxWithheld > 0 && (
             <Row
-              label="Thuế công ty đã khấu trừ"
+              label="Thuế công ty đã khấu trừ (cả năm)"
               value={r.breakdown.salaryTaxWithheld}
-              sub={`${monthsElapsed} tháng × ${formatCurrency(affiliate.monthly_salary_tax_withheld)}/tháng`}
+              sub={`12 tháng × ${formatCurrency(affiliate.monthly_salary_tax_withheld)}/tháng`}
             />
           )}
-          <Row label="Thuế Shopee đã khấu trừ (10% vãng lai)" value={r.breakdown.shopeeTaxWithheld} />
+          <Row
+            label="Thuế Shopee đã khấu trừ (10% vãng lai)"
+            value={r.breakdown.shopeeTaxWithheld}
+          />
           <RowTotal label="Tổng đã khấu trừ" value={r.taxWithheldYtd} />
 
           <div className="pt-2 mt-2 border-t border-border">
@@ -182,12 +165,12 @@ export function TaxBreakdown({ ytdResult, monthsElapsed, affiliate }: Props) {
               <span className="text-sm font-medium">Kết luận:</span>
               {r.status === "owe" && (
                 <span className="text-sm font-semibold text-warning">
-                  Cần nộp thêm {formatCurrency(r.taxAdditional)}
+                  Cần nộp thêm khi quyết toán: {formatCurrency(r.taxAdditional)}
                 </span>
               )}
               {r.status === "refund" && (
                 <span className="text-sm font-semibold text-success">
-                  Được hoàn {formatCurrency(Math.abs(r.taxAdditional))}
+                  Được hoàn khi quyết toán: {formatCurrency(Math.abs(r.taxAdditional))}
                 </span>
               )}
               {r.status === "even" && (
