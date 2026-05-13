@@ -4,12 +4,12 @@ import { createClient } from "@/lib/supabase/server";
 import {
   Wallet,
   Building2,
-  TrendingUp,
-  Receipt,
-  Coins,
   CircleDollarSign,
   Banknote,
   Inbox,
+  Hourglass,
+  Receipt,
+  Coins,
   ArrowRight,
   History,
   Database,
@@ -23,6 +23,7 @@ import { DashboardAlerts } from "@/components/dashboard/dashboard-alerts";
 import { RevenueTrendChart } from "@/components/dashboard/revenue-trend-chart";
 import { TopAffiliatesList } from "@/components/dashboard/top-affiliates-list";
 import { RecentCommissionsFeed } from "@/components/dashboard/recent-commissions-feed";
+import { DashboardPeriodSelector } from "@/components/dashboard/dashboard-period-selector";
 import { calculateYtdAdditionalTax } from "@/lib/ytd-tax";
 import type {
   DashboardAlert,
@@ -31,18 +32,59 @@ import type {
 } from "@/types/audit";
 import type { AffiliateAccount, Commission } from "@/types/database";
 
-export default async function DashboardPage() {
+interface PageProps {
+  searchParams: Promise<{ from?: string; to?: string; preset?: string }>;
+}
+
+function pad(n: number) {
+  return n.toString().padStart(2, "0");
+}
+function toDateStr(d: Date): string {
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+// Mặc định: tháng này (giữ behavior cũ)
+function defaultRange() {
+  const now = new Date();
+  return {
+    from: toDateStr(new Date(now.getFullYear(), now.getMonth(), 1)),
+    to: toDateStr(new Date(now.getFullYear(), now.getMonth() + 1, 0)),
+    preset: "this_month" as const,
+  };
+}
+
+// Label động cho KPI doanh thu theo period
+function getPeriodLabel(preset: string): string {
+  switch (preset) {
+    case "all": return "tất cả";
+    case "this_week": return "tuần này";
+    case "this_month": return "tháng này";
+    case "last_month": return "tháng trước";
+    case "this_year": return "năm nay";
+    case "last_year": return "năm trước";
+    default: return "kỳ này";
+  }
+}
+
+const NET_RATIO = 0.9;
+
+export default async function DashboardPage({ searchParams }: PageProps) {
+  const params = await searchParams;
+  const def = defaultRange();
+  const from = params.from ?? def.from;
+  const to = params.to ?? def.to;
+  const preset = params.preset ?? def.preset;
+
   const supabase = await createClient();
 
   const now = new Date();
   const currentYear = now.getFullYear();
   const monthsElapsed = now.getMonth() + 1;
-  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
-    .toISOString()
-    .split("T")[0];
-  const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0)
-    .toISOString()
-    .split("T")[0];
+
+  // ✨ Shopee processing chỉ hiện khi "Tất cả" hoặc "Năm nay"
+  const showProcessing = preset === "all" || preset === "this_year";
+
+  const periodLabel = getPeriodLabel(preset);
 
   const [
     alertsRes,
@@ -51,8 +93,9 @@ export default async function DashboardPage() {
     affiliatesRes,
     cashBalanceRes,
     bankAccountsRes,
-    shopeeReceivedRes,
-    shopeePendingRes,
+    commissionsReceivedRes,
+    commissionsPendingRes,
+    processingRes,
     ytdCommissionsRes,
     recentCommissionsRes,
     adsExpenseRes,
@@ -60,8 +103,8 @@ export default async function DashboardPage() {
     supabase.rpc("get_dashboard_alerts"),
     supabase.rpc("get_monthly_revenue_trend"),
     supabase.rpc("get_top_affiliates", {
-      p_from_date: startOfMonth,
-      p_to_date: endOfMonth,
+      p_from_date: from,
+      p_to_date: to,
       p_limit: 5,
     }),
     supabase
@@ -71,18 +114,24 @@ export default async function DashboardPage() {
       .in("status", ["active", "paused"]),
     supabase.rpc("get_cash_balance"),
     supabase.from("bank_accounts").select("id").eq("is_active", true),
+    // ✨ Đã chuyển trong period (gross + net của commissions status=received)
     supabase
-      .from("shopee_payments")
-      .select("total_net")
-      .eq("is_received", true)
+      .from("commissions")
+      .select("gross_amount, net_amount")
       .eq("is_deleted", false)
-      .gte("payment_date", startOfMonth)
-      .lte("payment_date", endOfMonth),
+      .eq("status", "received")
+      .gte("earned_date", from)
+      .lte("earned_date", to),
+    // ✨ Chưa chuyển — KHÔNG filter period vì pending là snapshot hiện tại
     supabase
-      .from("shopee_payments")
-      .select("total_net")
-      .eq("is_received", false)
-      .eq("is_deleted", false),
+      .from("commissions")
+      .select("gross_amount, net_amount")
+      .eq("is_deleted", false)
+      .eq("status", "pending"),
+    // ✨ Shopee đang xử lý — snapshot hiện tại
+    supabase
+      .from("shopee_processing_amounts")
+      .select("amount"),
     supabase
       .from("commissions")
       .select("account_id, gross_amount, tax_withheld, net_amount, status")
@@ -94,7 +143,6 @@ export default async function DashboardPage() {
       .eq("is_deleted", false)
       .order("created_at", { ascending: false })
       .limit(8),
-    // ✨ NEW: chi phí ads tháng này
     supabase.rpc("get_ads_expense_this_month").single(),
   ]);
 
@@ -112,20 +160,44 @@ export default async function DashboardPage() {
     totalBankBalance += (data as number) ?? 0;
   }
 
-  const shopeeReceivedTotal = (shopeeReceivedRes.data ?? []).reduce(
-    (s, p) => s + Number(p.total_net),
+  // ✨ Tính từng nguồn doanh thu
+  const receivedRows = (commissionsReceivedRes.data ?? []) as Array<{
+    gross_amount: number | string;
+    net_amount: number | string;
+  }>;
+  const pendingRows = (commissionsPendingRes.data ?? []) as Array<{
+    gross_amount: number | string;
+    net_amount: number | string;
+  }>;
+  const processingRows = (processingRes.data ?? []) as Array<{
+    amount: number | string;
+  }>;
+
+  const shopeeReceivedNet = receivedRows.reduce(
+    (s, r) => s + Number(r.net_amount),
     0,
   );
-  const shopeePendingTotal = (shopeePendingRes.data ?? []).reduce(
-    (s, p) => s + Number(p.total_net),
+  const shopeeReceivedCount = receivedRows.length;
+  const shopeePendingNet = pendingRows.reduce(
+    (s, r) => s + Number(r.net_amount),
     0,
   );
+  const shopeePendingCount = pendingRows.length;
 
-  const thisMonthData = monthlyTrend[monthlyTrend.length - 1];
-  const thisMonthGross = thisMonthData?.total_gross ?? 0;
-  const thisMonthNet = thisMonthData?.total_net ?? 0;
+  const shopeeProcessingGross = processingRows.reduce(
+    (s, r) => s + Number(r.amount),
+    0,
+  );
+  // ✨ Net = Gross × 0.9
+  const shopeeProcessingNet = Math.round(shopeeProcessingGross * NET_RATIO);
+  // Chỉ tính vào doanh thu khi preset cho phép
+  const processingNetForRevenue = showProcessing ? shopeeProcessingNet : 0;
 
-  // Chi phí Facebook Ads/Marketing tháng này
+  // ✨ Doanh thu Net = Đã chuyển + Chưa chuyển + Shopee đang xử lý (Net, nếu showProcessing)
+  const totalRevenueNet =
+    shopeeReceivedNet + shopeePendingNet + processingNetForRevenue;
+
+  // Chi phí Facebook Ads
   const adsData = (adsExpenseRes.data ?? {
     total_ads_expense: 0,
     transaction_count: 0,
@@ -137,7 +209,7 @@ export default async function DashboardPage() {
   };
   const adsExpense = Number(adsData.total_ads_expense);
 
-  // Tính thuế tổng
+  // Tính thuế (giữ logic cũ — cả năm)
   const ytdCommissions = (ytdCommissionsRes.data ?? []) as Pick<
     Commission,
     "account_id" | "gross_amount" | "tax_withheld" | "net_amount" | "status"
@@ -154,7 +226,6 @@ export default async function DashboardPage() {
   let totalTaxWithheld = 0;
   let totalTaxAdditional = 0;
   let totalTaxRefund = 0;
-  let totalTaxPayable = 0;
 
   for (const a of affiliates) {
     const ytd = ytdMap.get(a.id) ?? { gross: 0, tax: 0 };
@@ -171,7 +242,6 @@ export default async function DashboardPage() {
     });
 
     totalTaxWithheld += result.taxWithheldYtd;
-    totalTaxPayable += result.taxPayableYtd;
     if (result.status === "owe") totalTaxAdditional += result.taxAdditional;
     if (result.status === "refund") totalTaxRefund += Math.abs(result.taxAdditional);
   }
@@ -199,47 +269,59 @@ export default async function DashboardPage() {
         }`}
       />
 
-      {/* HÀNG 1: 3 KPI lớn */}
-      <div className="grid gap-4 md:grid-cols-3">
+      {/* ✨ Period selector */}
+      <DashboardPeriodSelector from={from} to={to} preset={preset} />
+
+      {/* HÀNG 1: 3 KPI lớn (đầu) */}
+      <div className="grid gap-4 md:grid-cols-3 lg:grid-cols-4">
         <BigKpiCard
-          label="Doanh thu tháng này (NET)"
-          value={formatCurrency(thisMonthNet)}
-          subtitle={`Sau khi trừ thuế khấu trừ • ${thisMonthData?.commission_count ?? 0} đợt`}
+          label={`Doanh thu ${periodLabel} (NET)`}
+          value={formatCurrency(totalRevenueNet)}
+          subtitle={
+            showProcessing
+              ? "Đã chuyển + Chưa chuyển + Đang xử lý"
+              : "Đã chuyển + Chưa chuyển"
+          }
           icon={CircleDollarSign}
           variant="primary"
         />
         <BigKpiCard
-          label="Shopee đã chuyển tháng này"
-          value={formatCurrency(shopeeReceivedTotal)}
-          subtitle={`${shopeeReceivedRes.data?.length ?? 0} đợt thanh toán`}
+          label={`Shopee đã chuyển ${periodLabel}`}
+          value={formatCurrency(shopeeReceivedNet)}
+          subtitle={`${shopeeReceivedCount} đợt thanh toán`}
           icon={Banknote}
           variant="success"
           href="/reconciliation"
         />
         <BigKpiCard
           label="Shopee chưa chuyển"
-          value={formatCurrency(shopeePendingTotal)}
-          subtitle={`${shopeePendingRes.data?.length ?? 0} đợt đang chờ`}
+          value={formatCurrency(shopeePendingNet)}
+          subtitle={`${shopeePendingCount} đợt đang chờ`}
           icon={Inbox}
-          variant={shopeePendingTotal > 0 ? "warning" : "default"}
+          variant={shopeePendingNet > 0 ? "warning" : "default"}
+          href="/reconciliation"
+        />
+        {/* ✨ KPI Shopee đang xử lý */}
+        <BigKpiCard
+          label="Shopee đang xử lý"
+          value={
+            showProcessing
+              ? formatCurrency(shopeeProcessingNet)
+              : "—"
+          }
+          subtitle={
+            showProcessing
+              ? `Net (Gross × 0.9) · Gross ${formatCurrency(shopeeProcessingGross)}`
+              : "Chỉ hiện khi chọn Tất cả / Năm nay"
+          }
+          icon={Hourglass}
+          variant={showProcessing && shopeeProcessingNet > 0 ? "purple" : "default"}
           href="/reconciliation"
         />
       </div>
 
-      {/* HÀNG 2: 7 KPI nhỏ */}
-      <div className="grid gap-3 grid-cols-2 md:grid-cols-3 lg:grid-cols-7">
-        <SmallKpiCard
-          label="Doanh thu tháng (Gross)"
-          value={formatCurrency(thisMonthGross)}
-          icon={TrendingUp}
-        />
-        <SmallKpiCard
-          label="Tổng thuế phải nộp"
-          value={formatCurrency(totalTaxPayable)}
-          subtitle="YTD theo lũy tiến"
-          icon={Receipt}
-          href="/tax"
-        />
+      {/* HÀNG 2: 5 KPI nhỏ (đã bỏ "Tổng thuế phải nộp" + "Doanh thu Gross") */}
+      <div className="grid gap-3 grid-cols-2 md:grid-cols-3 lg:grid-cols-5">
         <SmallKpiCard
           label="Thuế đã nộp"
           value={formatCurrency(totalTaxWithheld)}
@@ -273,7 +355,6 @@ export default async function DashboardPage() {
           icon={Building2}
           href="/bank-book"
         />
-        {/* ✨ NEW: Chi phí Facebook Ads */}
         <SmallKpiCard
           label="Chi phí Facebook Ads"
           value={formatCurrency(adsExpense)}
@@ -320,7 +401,7 @@ export default async function DashboardPage() {
 
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Top affiliate tháng này</CardTitle>
+              <CardTitle className="text-base">Top affiliate {periodLabel}</CardTitle>
               <p className="text-xs text-muted-foreground">
                 Theo doanh thu net (đã trừ thuế)
               </p>
@@ -369,7 +450,7 @@ function BigKpiCard({
   value: string;
   subtitle: string;
   icon: React.ComponentType<{ className?: string }>;
-  variant?: "default" | "primary" | "success" | "warning" | "danger";
+  variant?: "default" | "primary" | "success" | "warning" | "danger" | "purple";
   href?: string;
 }) {
   const iconStyles = {
@@ -378,6 +459,7 @@ function BigKpiCard({
     success: "bg-success/10 text-success",
     warning: "bg-warning/10 text-warning",
     danger: "bg-destructive/10 text-destructive",
+    purple: "bg-purple-500/10 text-purple-500",
   }[variant];
 
   const valueColor = {
@@ -386,6 +468,7 @@ function BigKpiCard({
     success: "text-success",
     warning: "text-warning",
     danger: "text-destructive",
+    purple: "text-purple-500",
   }[variant];
 
   const content = (
