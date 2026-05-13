@@ -80,7 +80,7 @@ export function AffiliatesReportView({
   const [sortKey, setSortKey] = useState<SortKey>("totalNet");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
 
-  // ✨ Khi chọn "Tất cả" → hiển thị đầy đủ. Khác → ẩn 2 cột "Đã nộp" & "Đang cầm"
+  // ✨ Khi chọn "Tất cả" → hiển thị đầy đủ. Khác → ẩn KPI + cột "Đã nộp" & "Đang cầm"
   const isAllTime = preset === "all";
 
   // Filter + sort
@@ -216,8 +216,13 @@ export function AffiliatesReportView({
 
       <ReportPeriodSelector from={from} to={to} onExport={handleExport} />
 
-      {/* KPI tổng */}
-      <div className="grid gap-4 md:grid-cols-4">
+      {/* KPI tổng — số ô phụ thuộc preset */}
+      <div
+        className={cn(
+          "grid gap-4",
+          isAllTime ? "md:grid-cols-4" : "md:grid-cols-2",
+        )}
+      >
         <Card>
           <CardContent className="p-5">
             <p className="text-xs text-muted-foreground font-medium">
@@ -247,32 +252,36 @@ export function AffiliatesReportView({
             </p>
           </CardContent>
         </Card>
-        <Card>
-          <CardContent className="p-5">
-            <p className="text-xs text-muted-foreground font-medium">Đã nộp công ty</p>
-            <p className="text-xl font-semibold mt-2 tabular-nums">
-              {formatCurrency(totals.deposited)}
-            </p>
-          </CardContent>
-        </Card>
-        <Card className={totals.undeposited > 1000000 ? "border-warning/30" : ""}>
-          <CardContent className="p-5">
-            <p className="text-xs text-muted-foreground font-medium">
-              Đang cầm chưa nộp
-            </p>
-            <p
-              className={cn(
-                "text-xl font-semibold mt-2 tabular-nums",
-                totals.undeposited > 1000000 ? "text-warning" : "",
-              )}
-            >
-              {formatCurrency(totals.undeposited)}
-            </p>
-            <p className="text-xs text-muted-foreground mt-2">
-              {filtered.filter((a) => a.undeposited > 1000000).length} người
-            </p>
-          </CardContent>
-        </Card>
+        {isAllTime && (
+          <Card>
+            <CardContent className="p-5">
+              <p className="text-xs text-muted-foreground font-medium">Đã nộp công ty</p>
+              <p className="text-xl font-semibold mt-2 tabular-nums">
+                {formatCurrency(totals.deposited)}
+              </p>
+            </CardContent>
+          </Card>
+        )}
+        {isAllTime && (
+          <Card className={totals.undeposited > 1000000 ? "border-warning/30" : ""}>
+            <CardContent className="p-5">
+              <p className="text-xs text-muted-foreground font-medium">
+                Đang cầm chưa nộp
+              </p>
+              <p
+                className={cn(
+                  "text-xl font-semibold mt-2 tabular-nums",
+                  totals.undeposited > 1000000 ? "text-warning" : "",
+                )}
+              >
+                {formatCurrency(totals.undeposited)}
+              </p>
+              <p className="text-xs text-muted-foreground mt-2">
+                {filtered.filter((a) => a.undeposited > 1000000).length} người
+              </p>
+            </CardContent>
+          </Card>
+        )}
       </div>
 
       {/* Bảng */}
