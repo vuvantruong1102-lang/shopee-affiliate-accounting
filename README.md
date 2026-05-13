@@ -1,133 +1,59 @@
-# Phase 16 — Move Shopee Processing to Reconciliation
+# Phase 21 — Tính thuế TNCN theo CẢ NĂM (12 tháng)
 
-## 📦 4 files trong zip này
+## 🎯 Thay đổi cốt lõi
+
+Theo luật VN, cá nhân quyết toán thuế TNCN cuối năm. Cách cũ tính YTD theo tháng đã trôi qua → SAI. Cách mới tính cả năm:
 
 ```
-components/reports/shopee-processing-table.tsx        ← GHI ĐÈ
-components/reports/shopee-processing-section.tsx      ← MỚI
-app/(dashboard)/reconciliation/page.tsx               ← GHI ĐÈ
-app/(dashboard)/reports/assets/page.tsx               ← GHI ĐÈ
+Tổng TN năm = Lương × 12 + Shopee YTD (số thật, không scale)
+Giảm trừ năm = (15.5tr + 6.2tr × dependents) × 12
+TNTT năm = max(0, Tổng TN - Giảm trừ)
+Thuế phải nộp = áp BẬC NĂM trực tiếp lên TNTT năm
+Cần nộp thêm = Thuế phải nộp - Thuế đã KT (Shopee + Lương × 12)
 ```
 
-## 🎯 Thay đổi
+## 📊 Bậc thuế NĂM (= bậc tháng × 12)
 
-### `/reconciliation` (Đối soát Shopee)
-**Thêm** bảng "Khoản thanh toán Shopee đang xử lý" ở **cuối trang**, dưới `ReconciliationView` cũ.
+| Bậc | TNTT năm | Rate |
+|---|---|---|
+| 1 | Đến 120tr | 5% |
+| 2 | 120 - 360tr | 10% |
+| 3 | 360 - 720tr | 20% |
+| 4 | 720tr - 1.2 tỷ | 30% |
+| 5 | Trên 1.2 tỷ | 35% |
 
-### `/reports/assets` (Tổng tài sản)
-**Bỏ** bảng `ShopeeProcessingTable` cũ ở dưới. Giữ:
-- 5 KPI top (Tiền mặt / NH / Affiliate cầm / Shopee chưa chuyển / Shopee đang xử lý)
-- Pie chart 5 lát
-- Bảng Affiliate đang cầm tiền
+## 📦 Files
 
-### `/affiliates/[id]` (Chi tiết affiliate)
-**Cần sửa tay** — xem hướng dẫn bên dưới.
-
----
-
-## 🚀 Triển khai
-
-### Bước 1: Upload 4 file trong zip
-
-### Bước 2: Sửa thêm `app/(dashboard)/affiliates/[id]/page.tsx`
-
-Mở file → thêm 2 đoạn code:
-
-#### Đoạn A: Fetch shopee processing (trong server component, gần các fetch khác)
-
-```tsx
-// Fetch số tiền Shopee đang xử lý của affiliate này
-const { data: processingData } = await supabase
-  .from("shopee_processing_amounts")
-  .select("amount, snapshot_date, updated_at")
-  .eq("affiliate_id", id)
-  .maybeSingle();
-
-const shopeeProcessing = Number(processingData?.amount ?? 0);
-const processingUpdatedAt = processingData?.updated_at as string | null;
+```
+lib/tax-calculator.ts                     ← GHI ĐÈ (thêm bậc năm + calculateTaxAnnualDirect)
+lib/ytd-tax.ts                            ← GHI ĐÈ (đổi sang tính 12 tháng)
+app/(dashboard)/tax/[id]/page.tsx         ← GHI ĐÈ (UI text + KPI labels)
 ```
 
-#### Đoạn B: Thêm KPI thứ 5 vào grid
+⚠️ **Thiếu**: nếu khối "Thuế phải nộp (lũy tiến 5 bậc)" trong screenshot là từ `components/tax/tax-breakdown.tsx` thì cần thêm file đó. Bạn gửi tôi sau để tôi sửa nốt.
 
-Tìm grid KPI hiện tại (4 ô: Tổng HH, Đã nhận, Chưa nhận, Đã nộp). Đổi class:
-```tsx
-// CŨ: grid-cols-2 lg:grid-cols-4
-// MỚI: grid-cols-2 lg:grid-cols-5
-<div className="grid gap-4 grid-cols-2 lg:grid-cols-5">
+## 🧪 Test sau deploy
+
+Với affiliate Vũ Văn Trường (ytdGross = 879.773.739, không lương, 0 dependents):
+
+### Cách CŨ (sai):
+- Cần nộp thêm: **119.447.726đ**
+
+### Cách MỚI (đúng):
+```
+Tổng TN năm: 879.773.739
+Giảm trừ:    186.000.000 (15.5tr × 12)
+TNTT năm:    693.773.739
+
+Bậc 1 (đến 120tr):    120tr × 5%  = 6.000.000
+Bậc 2 (120-360tr):    240tr × 10% = 24.000.000
+Bậc 3 (360-720tr):    333.773.739 × 20% = 66.754.748
+─────────────────────────────────────
+Thuế phải nộp:        96.754.748
+
+Thuế Shopee đã KT:    87.977.374 (10% của 879.773.739)
+─────────────────────────────────────
+Cần nộp thêm:         8.777.374 ✅
 ```
 
-Rồi **thêm KpiCard thứ 5** vào cuối grid, ngay sau "Đã nộp tiền mặt":
-
-```tsx
-<KpiCard
-  label="Shopee đang xử lý"
-  value={formatCurrency(shopeeProcessing)}
-  subtitle={
-    processingUpdatedAt
-      ? `Cập nhật ${new Date(processingUpdatedAt).toLocaleDateString("vi-VN")}`
-      : "Chưa cập nhật"
-  }
-  variant="purple"
-/>
-```
-
-#### Đoạn C: Cập nhật `KpiCard` để hỗ trợ variant `purple`
-
-Tìm function `KpiCard` trong cùng file. Sửa:
-
-```tsx
-function KpiCard({
-  label,
-  value,
-  subtitle,
-  variant = "default",
-  warning,
-  warningText,
-}: {
-  label: string;
-  value: string;
-  subtitle: string;
-  variant?: "default" | "success" | "warning" | "purple";  // ← thêm "purple"
-  warning?: boolean;
-  warningText?: string;
-}) {
-  const valueColor = {
-    default: "",
-    success: "text-success",
-    warning: "text-warning",
-    purple: "text-purple-500",  // ← thêm dòng này
-  }[variant];
-
-  // ... phần còn lại giữ nguyên
-}
-```
-
----
-
-## ✅ Test sau deploy
-
-### Test 1: `/reconciliation`
-1. Vào `/reconciliation`
-2. Cuộn xuống dưới → thấy bảng "Khoản thanh toán Shopee đang xử lý"
-3. Nhập số tiền cho 1 affiliate (vd: 15.000.000)
-4. Bấm Lưu → toast xanh
-5. Refresh → số mới hiển thị + "Cập nhật vừa xong"
-
-### Test 2: `/reports/assets`
-1. Vào `/reports/assets`
-2. KPI thứ 5 "Shopee đang xử lý" tăng lên 15tr (số vừa nhập)
-3. Pie chart có slice tím
-4. Cuộn xuống → **KHÔNG còn** bảng nhập (đã chuyển sang reconciliation)
-5. Note ở dưới cùng có link "Đối soát Shopee"
-
-### Test 3: `/affiliates/[id]` (sau khi sửa tay)
-1. Vào trang affiliate đã nhập 15tr
-2. KPI grid có 5 ô thay vì 4
-3. Ô "Shopee đang xử lý" màu tím, hiện 15.000.000 đ
-4. Subtitle: "Cập nhật DD/MM/YYYY"
-
----
-
-## 💡 Logic ghi đè
-
-Bảng `shopee_processing_amounts` có `PRIMARY KEY = affiliate_id` → mỗi affiliate chỉ có **1 dòng duy nhất**. RPC `upsert_shopee_processing` dùng `ON CONFLICT DO UPDATE` → khi nhập số mới sẽ **ghi đè** số cũ (không cộng dồn). Đúng yêu cầu của bạn.
+→ Giảm 13.6 lần so với cách cũ.
