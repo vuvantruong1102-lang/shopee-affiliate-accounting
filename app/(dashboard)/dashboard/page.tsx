@@ -43,7 +43,6 @@ function toDateStr(d: Date): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
-// Mặc định: tháng này (giữ behavior cũ)
 function defaultRange() {
   const now = new Date();
   return {
@@ -53,7 +52,6 @@ function defaultRange() {
   };
 }
 
-// Label động cho KPI doanh thu theo period
 function getPeriodLabel(preset: string): string {
   switch (preset) {
     case "all": return "tất cả";
@@ -68,6 +66,17 @@ function getPeriodLabel(preset: string): string {
 
 const NET_RATIO = 0.9;
 
+// ✨ Mở rộng: Shopee đang xử lý hiện cho mọi period TRỪ những period thuộc quá khứ
+// (tháng trước, năm trước, custom — vì processing là snapshot hiện tại)
+function shouldShowProcessing(preset: string): boolean {
+  return (
+    preset === "all" ||
+    preset === "this_week" ||
+    preset === "this_month" ||
+    preset === "this_year"
+  );
+}
+
 export default async function DashboardPage({ searchParams }: PageProps) {
   const params = await searchParams;
   const def = defaultRange();
@@ -81,9 +90,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
   const currentYear = now.getFullYear();
   const monthsElapsed = now.getMonth() + 1;
 
-  // ✨ Shopee processing chỉ hiện khi "Tất cả" hoặc "Năm nay"
-  const showProcessing = preset === "all" || preset === "this_year";
-
+  const showProcessing = shouldShowProcessing(preset);
   const periodLabel = getPeriodLabel(preset);
 
   const [
@@ -114,7 +121,6 @@ export default async function DashboardPage({ searchParams }: PageProps) {
       .in("status", ["active", "paused"]),
     supabase.rpc("get_cash_balance"),
     supabase.from("bank_accounts").select("id").eq("is_active", true),
-    // ✨ Đã chuyển trong period (gross + net của commissions status=received)
     supabase
       .from("commissions")
       .select("gross_amount, net_amount")
@@ -122,13 +128,11 @@ export default async function DashboardPage({ searchParams }: PageProps) {
       .eq("status", "received")
       .gte("earned_date", from)
       .lte("earned_date", to),
-    // ✨ Chưa chuyển — KHÔNG filter period vì pending là snapshot hiện tại
     supabase
       .from("commissions")
       .select("gross_amount, net_amount")
       .eq("is_deleted", false)
       .eq("status", "pending"),
-    // ✨ Shopee đang xử lý — snapshot hiện tại
     supabase
       .from("shopee_processing_amounts")
       .select("amount"),
@@ -160,7 +164,6 @@ export default async function DashboardPage({ searchParams }: PageProps) {
     totalBankBalance += (data as number) ?? 0;
   }
 
-  // ✨ Tính từng nguồn doanh thu
   const receivedRows = (commissionsReceivedRes.data ?? []) as Array<{
     gross_amount: number | string;
     net_amount: number | string;
@@ -188,16 +191,13 @@ export default async function DashboardPage({ searchParams }: PageProps) {
     (s, r) => s + Number(r.amount),
     0,
   );
-  // ✨ Net = Gross × 0.9
   const shopeeProcessingNet = Math.round(shopeeProcessingGross * NET_RATIO);
-  // Chỉ tính vào doanh thu khi preset cho phép
   const processingNetForRevenue = showProcessing ? shopeeProcessingNet : 0;
 
-  // ✨ Doanh thu Net = Đã chuyển + Chưa chuyển + Shopee đang xử lý (Net, nếu showProcessing)
+  // Doanh thu Net = Đã chuyển + Chưa chuyển + Shopee đang xử lý (Net, nếu showProcessing)
   const totalRevenueNet =
     shopeeReceivedNet + shopeePendingNet + processingNetForRevenue;
 
-  // Chi phí Facebook Ads
   const adsData = (adsExpenseRes.data ?? {
     total_ads_expense: 0,
     transaction_count: 0,
@@ -209,7 +209,6 @@ export default async function DashboardPage({ searchParams }: PageProps) {
   };
   const adsExpense = Number(adsData.total_ads_expense);
 
-  // Tính thuế (giữ logic cũ — cả năm)
   const ytdCommissions = (ytdCommissionsRes.data ?? []) as Pick<
     Commission,
     "account_id" | "gross_amount" | "tax_withheld" | "net_amount" | "status"
@@ -269,10 +268,9 @@ export default async function DashboardPage({ searchParams }: PageProps) {
         }`}
       />
 
-      {/* ✨ Period selector */}
       <DashboardPeriodSelector from={from} to={to} preset={preset} />
 
-      {/* HÀNG 1: 3 KPI lớn (đầu) */}
+      {/* HÀNG 1: 4 KPI lớn */}
       <div className="grid gap-4 md:grid-cols-3 lg:grid-cols-4">
         <BigKpiCard
           label={`Doanh thu ${periodLabel} (NET)`}
@@ -301,7 +299,6 @@ export default async function DashboardPage({ searchParams }: PageProps) {
           variant={shopeePendingNet > 0 ? "warning" : "default"}
           href="/reconciliation"
         />
-        {/* ✨ KPI Shopee đang xử lý */}
         <BigKpiCard
           label="Shopee đang xử lý"
           value={
@@ -312,7 +309,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
           subtitle={
             showProcessing
               ? `Net (Gross × 0.9) · Gross ${formatCurrency(shopeeProcessingGross)}`
-              : "Chỉ hiện khi chọn Tất cả / Năm nay"
+              : "Chỉ hiện cho period hiện tại"
           }
           icon={Hourglass}
           variant={showProcessing && shopeeProcessingNet > 0 ? "purple" : "default"}
@@ -320,7 +317,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
         />
       </div>
 
-      {/* HÀNG 2: 5 KPI nhỏ (đã bỏ "Tổng thuế phải nộp" + "Doanh thu Gross") */}
+      {/* HÀNG 2: 5 KPI nhỏ */}
       <div className="grid gap-3 grid-cols-2 md:grid-cols-3 lg:grid-cols-5">
         <SmallKpiCard
           label="Thuế đã nộp"
