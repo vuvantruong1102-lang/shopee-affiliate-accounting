@@ -13,9 +13,11 @@ interface PageProps {
 function pad(n: number) {
   return n.toString().padStart(2, "0");
 }
+
 function toDateStr(d: Date): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
+
 function defaultRange() {
   const now = new Date();
   return {
@@ -53,11 +55,12 @@ export default async function AffiliatesReportPage({ searchParams }: PageProps) 
     total_deposited: number;
     undeposited: number;
     commission_count: number;
+    shopee_processing_gross?: number;
+    shopee_processing_net?: number;
   };
 
   const current = (currentRes.data ?? []) as Row[];
   const previous = (previousRes.data ?? []) as Row[];
-
   const label = formatDateRangeLabel(from, to);
   const prevLabel = formatDateRangeLabel(comparison.previous.from, comparison.previous.to);
 
@@ -71,12 +74,10 @@ export default async function AffiliatesReportPage({ searchParams }: PageProps) 
           </Link>
         </Button>
       </div>
-
       <PageHeader
         title="Báo cáo theo Affiliate"
         description={`${label} • So sánh với ${prevLabel}`}
       />
-
       <AffiliatesReportView
         from={from}
         to={to}
