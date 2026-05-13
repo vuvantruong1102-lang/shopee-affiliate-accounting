@@ -1,87 +1,133 @@
-# Phase 15 — Shopee Đang Xử Lý
+# Phase 16 — Move Shopee Processing to Reconciliation
 
-## 🎯 Thêm KPI thứ 5: "Shopee đang xử lý"
-
-Số tiền Shopee đã ghi nhận hoa hồng theo ngày nhưng chưa nhóm thành đợt đối soát.
-Kế toán **nhập thủ công** số liệu từ trang Shopee Affiliate vào bảng trong /reports/assets.
-
----
-
-## 📋 Files (4 files)
+## 📦 4 files trong zip này
 
 ```
-supabase/migrations/20260514000013_phase15_shopee_processing.sql   ← SQL
-app/(dashboard)/reports/assets/page.tsx                            ← GHI ĐÈ (5 KPI)
-app/(dashboard)/reports/assets/actions.ts                          ← MỚI
-components/reports/shopee-processing-table.tsx                     ← MỚI
+components/reports/shopee-processing-table.tsx        ← GHI ĐÈ
+components/reports/shopee-processing-section.tsx      ← MỚI
+app/(dashboard)/reconciliation/page.tsx               ← GHI ĐÈ
+app/(dashboard)/reports/assets/page.tsx               ← GHI ĐÈ
 ```
+
+## 🎯 Thay đổi
+
+### `/reconciliation` (Đối soát Shopee)
+**Thêm** bảng "Khoản thanh toán Shopee đang xử lý" ở **cuối trang**, dưới `ReconciliationView` cũ.
+
+### `/reports/assets` (Tổng tài sản)
+**Bỏ** bảng `ShopeeProcessingTable` cũ ở dưới. Giữ:
+- 5 KPI top (Tiền mặt / NH / Affiliate cầm / Shopee chưa chuyển / Shopee đang xử lý)
+- Pie chart 5 lát
+- Bảng Affiliate đang cầm tiền
+
+### `/affiliates/[id]` (Chi tiết affiliate)
+**Cần sửa tay** — xem hướng dẫn bên dưới.
 
 ---
 
 ## 🚀 Triển khai
 
-### Bước 1: Chạy SQL migration
+### Bước 1: Upload 4 file trong zip
 
-Supabase SQL Editor → paste file `20260514000013_phase15_shopee_processing.sql` → Run
+### Bước 2: Sửa thêm `app/(dashboard)/affiliates/[id]/page.tsx`
 
-Migration tạo:
-- Bảng `shopee_processing_amounts` (1 dòng/affiliate)
-- RPC `upsert_shopee_processing` (kế toán dùng để cập nhật)
-- Update RPC `get_total_assets` (cộng thêm `shopee_processing`)
+Mở file → thêm 2 đoạn code:
 
-### Bước 2: Upload 3 files code
+#### Đoạn A: Fetch shopee processing (trong server component, gần các fetch khác)
 
+```tsx
+// Fetch số tiền Shopee đang xử lý của affiliate này
+const { data: processingData } = await supabase
+  .from("shopee_processing_amounts")
+  .select("amount, snapshot_date, updated_at")
+  .eq("affiliate_id", id)
+  .maybeSingle();
+
+const shopeeProcessing = Number(processingData?.amount ?? 0);
+const processingUpdatedAt = processingData?.updated_at as string | null;
 ```
-app/(dashboard)/reports/assets/page.tsx
-app/(dashboard)/reports/assets/actions.ts
-components/reports/shopee-processing-table.tsx
+
+#### Đoạn B: Thêm KPI thứ 5 vào grid
+
+Tìm grid KPI hiện tại (4 ô: Tổng HH, Đã nhận, Chưa nhận, Đã nộp). Đổi class:
+```tsx
+// CŨ: grid-cols-2 lg:grid-cols-4
+// MỚI: grid-cols-2 lg:grid-cols-5
+<div className="grid gap-4 grid-cols-2 lg:grid-cols-5">
 ```
 
-### Bước 3: Commit + Push
+Rồi **thêm KpiCard thứ 5** vào cuối grid, ngay sau "Đã nộp tiền mặt":
 
-Message: `Phase 15: track Shopee processing amount per affiliate`
+```tsx
+<KpiCard
+  label="Shopee đang xử lý"
+  value={formatCurrency(shopeeProcessing)}
+  subtitle={
+    processingUpdatedAt
+      ? `Cập nhật ${new Date(processingUpdatedAt).toLocaleDateString("vi-VN")}`
+      : "Chưa cập nhật"
+  }
+  variant="purple"
+/>
+```
 
-### Bước 4: Test
+#### Đoạn C: Cập nhật `KpiCard` để hỗ trợ variant `purple`
 
+Tìm function `KpiCard` trong cùng file. Sửa:
+
+```tsx
+function KpiCard({
+  label,
+  value,
+  subtitle,
+  variant = "default",
+  warning,
+  warningText,
+}: {
+  label: string;
+  value: string;
+  subtitle: string;
+  variant?: "default" | "success" | "warning" | "purple";  // ← thêm "purple"
+  warning?: boolean;
+  warningText?: string;
+}) {
+  const valueColor = {
+    default: "",
+    success: "text-success",
+    warning: "text-warning",
+    purple: "text-purple-500",  // ← thêm dòng này
+  }[variant];
+
+  // ... phần còn lại giữ nguyên
+}
+```
+
+---
+
+## ✅ Test sau deploy
+
+### Test 1: `/reconciliation`
+1. Vào `/reconciliation`
+2. Cuộn xuống dưới → thấy bảng "Khoản thanh toán Shopee đang xử lý"
+3. Nhập số tiền cho 1 affiliate (vd: 15.000.000)
+4. Bấm Lưu → toast xanh
+5. Refresh → số mới hiển thị + "Cập nhật vừa xong"
+
+### Test 2: `/reports/assets`
 1. Vào `/reports/assets`
-2. KPI top giờ có **5 ô** (thêm "Shopee đang xử lý" màu tím)
-3. Cuộn xuống → thấy bảng "Shopee đang xử lý" với danh sách affiliate
-4. Sửa số tiền cho Vũ Văn Trường: 28.122.446
-5. Đổi ngày snapshot
-6. Bấm "Lưu" → toast xanh
-7. **Pie chart và Tổng tài sản tự cập nhật** sau khi lưu (page tự revalidate)
+2. KPI thứ 5 "Shopee đang xử lý" tăng lên 15tr (số vừa nhập)
+3. Pie chart có slice tím
+4. Cuộn xuống → **KHÔNG còn** bảng nhập (đã chuyển sang reconciliation)
+5. Note ở dưới cùng có link "Đối soát Shopee"
+
+### Test 3: `/affiliates/[id]` (sau khi sửa tay)
+1. Vào trang affiliate đã nhập 15tr
+2. KPI grid có 5 ô thay vì 4
+3. Ô "Shopee đang xử lý" màu tím, hiện 15.000.000 đ
+4. Subtitle: "Cập nhật DD/MM/YYYY"
 
 ---
 
-## 💡 Workflow hàng ngày của kế toán
+## 💡 Logic ghi đè
 
-```
-1. Mở Shopee Affiliate của Trần Văn An
-2. Vào "Thanh toán" → "Hóa đơn đối soát"
-3. Copy số "Khoản thanh toán đang xử lý" (vd: 28.122.446đ)
-4. Vào app /reports/assets
-5. Tìm Trần Văn An trong bảng → paste số → Lưu
-6. Lặp lại cho mỗi affiliate (5 phút)
-7. Pie chart cập nhật ngay, Tổng tài sản đúng 100%
-```
-
----
-
-## ✨ Features đặc biệt
-
-### Cảnh báo "đã cũ"
-Nếu số liệu cập nhật cuối **> 7 ngày trước** và amount > 0:
-- Dòng đó có nền xám
-- Hiển thị "Đã cũ — nên cập nhật"
-
-### Chỉ báo "có thay đổi chưa lưu"
-Khi sửa số, dòng đó có nền cam → nhắc nhở bấm Lưu
-
-### Snapshot date
-Lưu ngày Shopee tính số liệu (KHÁC với ngày kế toán nhập). Hữu ích để biết "28tr này là tính đến ngày nào".
-
-### Audit log
-Mỗi lần sửa được ghi vào audit_log → trace được lịch sử thay đổi.
-
-### Có thể thu gọn
-Bấm header của bảng → thu gọn/mở rộng để không chiếm chỗ.
+Bảng `shopee_processing_amounts` có `PRIMARY KEY = affiliate_id` → mỗi affiliate chỉ có **1 dòng duy nhất**. RPC `upsert_shopee_processing` dùng `ON CONFLICT DO UPDATE` → khi nhập số mới sẽ **ghi đè** số cũ (không cộng dồn). Đúng yêu cầu của bạn.
