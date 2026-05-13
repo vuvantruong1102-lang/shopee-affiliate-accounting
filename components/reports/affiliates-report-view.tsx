@@ -44,6 +44,7 @@ interface Props {
   previous: Row[];
   periodLabel: string;
   previousLabel: string;
+  preset?: string;
 }
 
 type SortKey =
@@ -73,10 +74,14 @@ export function AffiliatesReportView({
   previous,
   periodLabel,
   previousLabel,
+  preset = "custom",
 }: Props) {
   const [search, setSearch] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("totalNet");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
+
+  // ✨ Khi chọn "Tất cả" → hiển thị đầy đủ. Khác → ẩn 2 cột "Đã nộp" & "Đang cầm"
+  const isAllTime = preset === "all";
 
   // Filter + sort
   const filtered = useMemo(() => {
@@ -140,7 +145,7 @@ export function AffiliatesReportView({
     );
   }, [filtered]);
 
-  // Total period trước - dùng cho KPI so sánh
+  // Total period trước
   const previousTotals = useMemo(() => {
     return previous.reduce(
       (acc, r) => ({
@@ -170,8 +175,7 @@ export function AffiliatesReportView({
       "Shopee đang xử lý (Net)",
       "Shopee chưa chuyển",
       "Đã nhận",
-      "Đã nộp",
-      "Đang cầm",
+      ...(isAllTime ? ["Đã nộp", "Đang cầm"] : []),
     ];
     const rows = filtered.map((a) => [
       a.affiliate_name,
@@ -181,8 +185,9 @@ export function AffiliatesReportView({
       Number(a.shopee_processing_net ?? 0),
       Number(a.pending_net),
       Number(a.received_net),
-      Number(a.total_deposited),
-      Number(a.undeposited),
+      ...(isAllTime
+        ? [Number(a.total_deposited), Number(a.undeposited)]
+        : []),
     ]);
     rows.push([]);
     rows.push([
@@ -193,8 +198,7 @@ export function AffiliatesReportView({
       totals.processing,
       totals.pending,
       totals.received,
-      totals.deposited,
-      totals.undeposited,
+      ...(isAllTime ? [totals.deposited, totals.undeposited] : []),
     ]);
     const csv = buildCsv(headers, rows);
     downloadCsv(`bao-cao-affiliate-${from}-den-${to}.csv`, csv);
@@ -222,9 +226,11 @@ export function AffiliatesReportView({
             <p className="text-xl font-semibold mt-2 tabular-nums">
               {formatCurrency(totals.totalNet)}
             </p>
-            <p className={cn("text-xs mt-2 font-medium", totalChange.className)}>
-              {totalChange.text} vs {previousLabel}
-            </p>
+            {!isAllTime && (
+              <p className={cn("text-xs mt-2 font-medium", totalChange.className)}>
+                {totalChange.text} vs {previousLabel}
+              </p>
+            )}
             <p className="text-[10px] text-muted-foreground mt-0.5">
               Đã nhận + Chưa chuyển + Đang xử lý
             </p>
@@ -340,28 +346,35 @@ export function AffiliatesReportView({
                     onClick={toggleSort}
                     align="right"
                   />
-                  <SortableHeader
-                    label="Đã nộp"
-                    sortKey="deposited"
-                    currentSort={sortKey}
-                    currentDir={sortDir}
-                    onClick={toggleSort}
-                    align="right"
-                  />
-                  <SortableHeader
-                    label="Đang cầm"
-                    sortKey="undeposited"
-                    currentSort={sortKey}
-                    currentDir={sortDir}
-                    onClick={toggleSort}
-                    align="right"
-                  />
+                  {isAllTime && (
+                    <SortableHeader
+                      label="Đã nộp"
+                      sortKey="deposited"
+                      currentSort={sortKey}
+                      currentDir={sortDir}
+                      onClick={toggleSort}
+                      align="right"
+                    />
+                  )}
+                  {isAllTime && (
+                    <SortableHeader
+                      label="Đang cầm"
+                      sortKey="undeposited"
+                      currentSort={sortKey}
+                      currentDir={sortDir}
+                      onClick={toggleSort}
+                      align="right"
+                    />
+                  )}
                 </tr>
               </thead>
               <tbody>
                 {filtered.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="px-6 py-12 text-center text-muted-foreground">
+                    <td
+                      colSpan={isAllTime ? 8 : 6}
+                      className="px-6 py-12 text-center text-muted-foreground"
+                    >
                       Không có affiliate nào trong khoảng thời gian này
                     </td>
                   </tr>
@@ -375,7 +388,9 @@ export function AffiliatesReportView({
                         key={a.affiliate_id}
                         className={cn(
                           "border-b border-border last:border-0 hover:bg-muted/40 transition-colors",
-                          Number(a.undeposited) > 1000000 && "bg-warning/5",
+                          isAllTime &&
+                            Number(a.undeposited) > 1000000 &&
+                            "bg-warning/5",
                         )}
                       >
                         <td className="px-6 py-3">
@@ -420,25 +435,31 @@ export function AffiliatesReportView({
                         <td className="px-6 py-3 text-right tabular-nums text-success">
                           {formatCurrency(a.received_net)}
                         </td>
-                        <td className="px-6 py-3 text-right tabular-nums">
-                          {Number(a.total_deposited) > 0
-                            ? formatCurrency(a.total_deposited)
-                            : <span className="text-muted-foreground">—</span>}
-                        </td>
-                        <td className="px-6 py-3 text-right tabular-nums">
-                          {Number(a.undeposited) > 1000000 ? (
-                            <span className="text-warning font-medium inline-flex items-center gap-1">
-                              <AlertTriangle className="w-3 h-3" />
-                              {formatCurrency(a.undeposited)}
-                            </span>
-                          ) : Number(a.undeposited) > 0 ? (
-                            <span className="text-muted-foreground">
-                              {formatCurrency(a.undeposited)}
-                            </span>
-                          ) : (
-                            <span className="text-muted-foreground">—</span>
-                          )}
-                        </td>
+                        {isAllTime && (
+                          <td className="px-6 py-3 text-right tabular-nums">
+                            {Number(a.total_deposited) > 0 ? (
+                              formatCurrency(a.total_deposited)
+                            ) : (
+                              <span className="text-muted-foreground">—</span>
+                            )}
+                          </td>
+                        )}
+                        {isAllTime && (
+                          <td className="px-6 py-3 text-right tabular-nums">
+                            {Number(a.undeposited) > 1000000 ? (
+                              <span className="text-warning font-medium inline-flex items-center gap-1">
+                                <AlertTriangle className="w-3 h-3" />
+                                {formatCurrency(a.undeposited)}
+                              </span>
+                            ) : Number(a.undeposited) > 0 ? (
+                              <span className="text-muted-foreground">
+                                {formatCurrency(a.undeposited)}
+                              </span>
+                            ) : (
+                              <span className="text-muted-foreground">—</span>
+                            )}
+                          </td>
+                        )}
                       </tr>
                     );
                   })
@@ -463,12 +484,16 @@ export function AffiliatesReportView({
                     <td className="px-6 py-3 text-right tabular-nums text-success">
                       {formatCurrency(totals.received)}
                     </td>
-                    <td className="px-6 py-3 text-right tabular-nums">
-                      {formatCurrency(totals.deposited)}
-                    </td>
-                    <td className="px-6 py-3 text-right tabular-nums">
-                      {formatCurrency(totals.undeposited)}
-                    </td>
+                    {isAllTime && (
+                      <td className="px-6 py-3 text-right tabular-nums">
+                        {formatCurrency(totals.deposited)}
+                      </td>
+                    )}
+                    {isAllTime && (
+                      <td className="px-6 py-3 text-right tabular-nums">
+                        {formatCurrency(totals.undeposited)}
+                      </td>
+                    )}
                   </tr>
                 </tfoot>
               )}

@@ -6,7 +6,15 @@ import { Input } from "@/components/ui/input";
 import { Calendar, Printer, FileSpreadsheet } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-type Preset = "this_month" | "last_month" | "this_quarter" | "last_quarter" | "this_year" | "last_year" | "custom";
+type Preset =
+  | "all"
+  | "this_month"
+  | "last_month"
+  | "this_quarter"
+  | "last_quarter"
+  | "this_year"
+  | "last_year"
+  | "custom";
 
 interface Props {
   from: string;
@@ -23,6 +31,15 @@ function toDateStr(d: Date): string {
 }
 
 const PRESETS: Array<{ value: Preset; label: string; range: () => { from: string; to: string } }> = [
+  {
+    // ✨ MỚI: từ đầu năm 2026 đến thời điểm hiện tại
+    value: "all",
+    label: "Tất cả",
+    range: () => ({
+      from: "2026-01-01",
+      to: toDateStr(new Date()),
+    }),
+  },
   {
     value: "this_month",
     label: "Tháng này",
@@ -87,12 +104,16 @@ export function ReportPeriodSelector({ from, to, onExport }: Props) {
     const params = new URLSearchParams(searchParams);
     params.set("from", r.from);
     params.set("to", r.to);
+    // ✨ Lưu preset vào URL để view biết là "all"
+    params.set("preset", preset);
     router.push(`${pathname}?${params.toString()}`);
   }
 
   function changeDate(field: "from" | "to", value: string) {
     const params = new URLSearchParams(searchParams);
     params.set(field, value);
+    // Khi user chỉnh date tay → coi như custom
+    params.set("preset", "custom");
     router.push(`${pathname}?${params.toString()}`);
   }
 
@@ -101,7 +122,10 @@ export function ReportPeriodSelector({ from, to, onExport }: Props) {
   }
 
   // Detect preset hiện tại
+  // Ưu tiên giá trị từ URL trước, fallback theo from/to
+  const urlPreset = searchParams.get("preset") as Preset | null;
   const currentPreset: Preset = (() => {
+    if (urlPreset && PRESETS.some((p) => p.value === urlPreset)) return urlPreset;
     for (const p of PRESETS) {
       const r = p.range();
       if (r.from === from && r.to === to) return p.value;
