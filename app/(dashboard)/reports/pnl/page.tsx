@@ -29,6 +29,9 @@ function defaultRange() {
 interface PnlRawData {
   revenue_gross: number;
   revenue_net: number;
+  revenue_gross_received: number;
+  revenue_gross_pending: number;
+  revenue_gross_processing: number;
   total_commission_tax_withheld: number;
   expense_marketing: number;
   expense_salary: number;
@@ -47,27 +50,34 @@ interface BreakdownRow {
 }
 
 export interface PnlData extends PnlRawData {
-  tax_payable: number;        // ✨ Tổng thuế phải nộp (lũy tiến)
+  tax_payable: number;
+  tax_additional: number;        // ✨ Thuế còn thiếu (luôn ≥ 0)
   profit_loss: number;
   profit_margin: number;
 }
 
 /**
- * Tính tổng thuế phải nộp theo lũy tiến cho 1 khoảng thời gian.
+ * Tính tổng thuế phải nộp CẢ NĂM cho tất cả affiliate active.
  * 
- * Logic: với mỗi affiliate đang active, tính:
- *   - YTD shopee commission (gross + tax_withheld) trong khoảng
- *   - Lương (nếu có) × số tháng trong khoảng
- *   - Áp lũy tiến → ra tax_payable per affiliate
+ * Logic:
+ * - Với mỗi affiliate active/paused:
+ *   - Gross năm = SUM(commissions trong CẢ NĂM) + shopee_processing_amount
+ *   - Lương năm = monthly × 12 (nếu has_company_salary)
+ *   - Giảm trừ năm = (15.5tr + 6.2tr × dep) × 12
+ *   - Áp lũy tiến 5 bậc THEO NĂM
+ *   - tax_aff = thuế phải nộp năm
+ * - Tổng = SUM(tax_aff)
  * 
- * Sau đó cộng dồn tất cả affiliate.
+ * KHÔNG phụ thuộc period (luôn lấy thuế cả năm hiện tại).
  */
 async function calculateTotalTaxPayable(
   supabase: Awaited<ReturnType<typeof createClient>>,
-  fromDate: string,
-  toDate: string,
 ): Promise<number> {
-  const [affiliatesRes, commissionsRes] = await Promise.all([
+  const currentYear = new Date().getFullYear();
+  const yearStart = `${currentYear}-01-01`;
+  const yearEnd = `${currentYear}-12-31`;
+
+  const [affiliatesRes, commissionsRes, processingRes] = await Promise.all([
     supabase
       .from("affiliate_accounts")
       .select("*")
@@ -77,8 +87,11 @@ async function calculateTotalTaxPayable(
       .from("commissions")
       .select("account_id, gross_amount, tax_withheld")
       .eq("is_deleted", false)
-      .gte("earned_date", fromDate)
-      .lte("earned_date", toDate),
+      .gte("earned_date", yearStart)
+      .lte("earned_date", yearEnd),
+    supabase
+      .from("shopee_processing_amounts")
+      .select("affiliate_id, amount"),
   ]);
 
   const affiliates = (affiliatesRes.data ?? []) as AffiliateAccount[];
@@ -86,21 +99,12 @@ async function calculateTotalTaxPayable(
     Commission,
     "account_id" | "gross_amount" | "tax_withheld"
   >[];
+  const processing = (processingRes.data ?? []) as Array<{
+    affiliate_id: string;
+    amount: number | string;
+  }>;
 
-  // Tính số tháng trong khoảng (1-12)
-  const fromD = new Date(fromDate + "T00:00:00");
-  const toD = new Date(toDate + "T00:00:00");
-  const monthsInRange = Math.max(
-    1,
-    Math.min(
-      12,
-      Math.round(
-        (toD.getTime() - fromD.getTime()) / (1000 * 60 * 60 * 24 * 30),
-      ) + 1,
-    ),
-  );
-
-  // Map gross + tax theo affiliate
+  // Map gross + tax theo affiliate (từ commissions cả năm)
   const ytdMap = new Map<string, { gross: number; tax: number }>();
   for (const c of commissions) {
     const entry = ytdMap.get(c.account_id) ?? { gross: 0, tax: 0 };
@@ -109,19 +113,33 @@ async function calculateTotalTaxPayable(
     ytdMap.set(c.account_id, entry);
   }
 
+  // Map processing (Gross) theo affiliate
+  const processingMap = new Map<string, number>();
+  for (const p of processing) {
+    processingMap.set(p.affiliate_id, Number(p.amount));
+  }
+
   let totalTaxPayable = 0;
   for (const a of affiliates) {
     const ytd = ytdMap.get(a.id) ?? { gross: 0, tax: 0 };
-    if (ytd.gross === 0 && !a.has_company_salary) continue;
+    const processingGross = processingMap.get(a.id) ?? 0;
+    // Thuế Shopee đã KT 10% trên processing
+    const processingTax = Math.round(processingGross * 0.10);
+
+    // ✨ Gross năm = commissions + processing
+    const totalShopeeGross = ytd.gross + processingGross;
+    const totalShopeeTax = ytd.tax + processingTax;
+
+    if (totalShopeeGross === 0 && !a.has_company_salary) continue;
 
     const result = calculateYtdAdditionalTax({
-      monthsElapsed: monthsInRange,
+      monthsElapsed: 12,  // bỏ qua, hàm luôn tính 12
       monthlySalaryGross: a.has_company_salary ? Number(a.monthly_salary_gross) : 0,
       monthlySalaryTaxWithheld: a.has_company_salary
         ? Number(a.monthly_salary_tax_withheld)
         : 0,
-      ytdShopeeGross: ytd.gross,
-      ytdShopeeTaxWithheld: ytd.tax,
+      ytdShopeeGross: totalShopeeGross,
+      ytdShopeeTaxWithheld: totalShopeeTax,
       hasPersonalDeduction: a.has_personal_deduction,
       dependentCount: a.dependent_count,
     });
@@ -141,12 +159,13 @@ export default async function PnlReportPage({ searchParams }: PageProps) {
   const supabase = await createClient();
   const comparison = getPreviousPeriod(from, to);
 
+  // ✨ Thuế cả năm: tính 1 lần, dùng cho cả current và previous (số cố định)
+  const annualTaxPayable = await calculateTotalTaxPayable(supabase);
+
   const [
     currentRawRes,
     previousRawRes,
     breakdownRes,
-    currentTax,
-    previousTax,
   ] = await Promise.all([
     supabase.rpc("get_pnl_report", { p_from_date: from, p_to_date: to }).single(),
     supabase
@@ -156,13 +175,14 @@ export default async function PnlReportPage({ searchParams }: PageProps) {
       })
       .single(),
     supabase.rpc("get_expense_breakdown", { p_from_date: from, p_to_date: to }),
-    calculateTotalTaxPayable(supabase, from, to),
-    calculateTotalTaxPayable(supabase, comparison.previous.from, comparison.previous.to),
   ]);
 
   const emptyRaw: PnlRawData = {
     revenue_gross: 0,
     revenue_net: 0,
+    revenue_gross_received: 0,
+    revenue_gross_pending: 0,
+    revenue_gross_processing: 0,
     total_commission_tax_withheld: 0,
     expense_marketing: 0,
     expense_salary: 0,
@@ -173,6 +193,11 @@ export default async function PnlReportPage({ searchParams }: PageProps) {
   };
 
   function build(raw: PnlRawData, taxPayable: number): PnlData {
+    // Thuế còn thiếu = max(0, Tổng phải nộp - Tạm nộp Shopee KT)
+    const taxAdditional = Math.max(
+      0,
+      taxPayable - Number(raw.total_commission_tax_withheld),
+    );
     // Lãi = Gross - Tổng thuế phải nộp - Chi phí
     const profit = Number(raw.revenue_gross) - taxPayable - Number(raw.total_expense);
     const margin =
@@ -182,6 +207,7 @@ export default async function PnlReportPage({ searchParams }: PageProps) {
     return {
       ...raw,
       tax_payable: taxPayable,
+      tax_additional: taxAdditional,
       profit_loss: profit,
       profit_margin: Math.round(margin * 100) / 100,
     };
@@ -189,11 +215,11 @@ export default async function PnlReportPage({ searchParams }: PageProps) {
 
   const current = build(
     (currentRawRes.data ?? emptyRaw) as PnlRawData,
-    currentTax,
+    annualTaxPayable,
   );
   const previous = build(
     (previousRawRes.data ?? emptyRaw) as PnlRawData,
-    previousTax,
+    annualTaxPayable,  // ✨ giống current vì thuế cả năm cố định
   );
   const breakdown = (breakdownRes.data ?? []) as BreakdownRow[];
 
@@ -213,7 +239,7 @@ export default async function PnlReportPage({ searchParams }: PageProps) {
 
       <PageHeader
         title="Báo cáo Lãi/Lỗ (P&L)"
-        description={`${label} • So sánh với ${prevLabel}`}
+        description={`${label} • So sánh với ${prevLabel} · Thuế tính cả năm ${new Date().getFullYear()}`}
       />
 
       <PnlReportView
