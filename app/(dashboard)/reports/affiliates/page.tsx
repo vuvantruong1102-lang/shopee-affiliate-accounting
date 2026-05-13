@@ -7,7 +7,7 @@ import { getPreviousPeriod, formatDateRangeLabel } from "@/lib/report-period";
 import { AffiliatesReportView } from "@/components/reports/affiliates-report-view";
 
 interface PageProps {
-  searchParams: Promise<{ from?: string; to?: string }>;
+  searchParams: Promise<{ from?: string; to?: string; preset?: string }>;
 }
 
 function pad(n: number) {
@@ -18,11 +18,12 @@ function toDateStr(d: Date): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
+// ✨ MỚI: mặc định là "Tất cả" (từ đầu năm 2026 đến hôm nay)
 function defaultRange() {
-  const now = new Date();
   return {
-    from: toDateStr(new Date(now.getFullYear(), now.getMonth(), 1)),
-    to: toDateStr(new Date(now.getFullYear(), now.getMonth() + 1, 0)),
+    from: "2026-01-01",
+    to: toDateStr(new Date()),
+    preset: "all" as const,
   };
 }
 
@@ -31,6 +32,7 @@ export default async function AffiliatesReportPage({ searchParams }: PageProps) 
   const def = defaultRange();
   const from = params.from ?? def.from;
   const to = params.to ?? def.to;
+  const preset = params.preset ?? def.preset;
 
   const supabase = await createClient();
   const comparison = getPreviousPeriod(from, to);
@@ -76,7 +78,11 @@ export default async function AffiliatesReportPage({ searchParams }: PageProps) 
       </div>
       <PageHeader
         title="Báo cáo theo Affiliate"
-        description={`${label} • So sánh với ${prevLabel}`}
+        description={
+          preset === "all"
+            ? `Tất cả (${label})`
+            : `${label} • So sánh với ${prevLabel}`
+        }
       />
       <AffiliatesReportView
         from={from}
@@ -85,6 +91,7 @@ export default async function AffiliatesReportPage({ searchParams }: PageProps) 
         previous={previous}
         periodLabel={label}
         previousLabel={prevLabel}
+        preset={preset}
       />
     </div>
   );
