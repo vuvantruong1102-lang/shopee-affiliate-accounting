@@ -1,11 +1,11 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { CurrencyInput } from "@/components/shared/currency-input";
-import { Clock, Save, Loader2, ChevronDown, ChevronUp } from "lucide-react";
+import { Save, Loader2, ChevronDown, ChevronUp, Hourglass } from "lucide-react";
 import { toast } from "sonner";
 import { formatCurrency, cn } from "@/lib/utils";
 import { upsertShopeeProcessing } from "@/app/(dashboard)/reports/assets/actions";
@@ -21,6 +21,9 @@ interface ProcessingItem {
 
 interface Props {
   items: ProcessingItem[];
+  title?: string;
+  description?: string;
+  defaultExpanded?: boolean;
 }
 
 function timeAgo(iso: string | null): string {
@@ -47,12 +50,16 @@ function isStale(iso: string | null): boolean {
   return diffDay > 7;
 }
 
-export function ShopeeProcessingTable({ items }: Props) {
-  const [collapsed, setCollapsed] = useState(false);
+export function ShopeeProcessingTable({
+  items,
+  title = "Khoản thanh toán Shopee đang xử lý",
+  description,
+  defaultExpanded = true,
+}: Props) {
+  const [collapsed, setCollapsed] = useState(!defaultExpanded);
   const [edits, setEdits] = useState<Record<string, number>>({});
   const [snapshotDates, setSnapshotDates] = useState<Record<string, string>>({});
   const [savingId, setSavingId] = useState<string | null>(null);
-  const [, startTransition] = useTransition();
 
   function getCurrentAmount(item: ProcessingItem): number {
     return edits[item.affiliate_id] ?? Number(item.amount);
@@ -95,9 +102,10 @@ export function ShopeeProcessingTable({ items }: Props) {
         toast.error(result.error);
         return;
       }
-      toast.success(`Đã cập nhật ${item.affiliate_name}: ${formatCurrency(amount)}`);
+      toast.success(
+        `Đã cập nhật ${item.affiliate_name}: ${formatCurrency(amount)}`,
+      );
 
-      // Clear edit cache để dùng giá trị từ server next render
       setEdits((prev) => {
         const next = { ...prev };
         delete next[item.affiliate_id];
@@ -107,9 +115,6 @@ export function ShopeeProcessingTable({ items }: Props) {
         const next = { ...prev };
         delete next[item.affiliate_id];
         return next;
-      });
-      startTransition(() => {
-        // Trigger refresh
       });
     } catch (err) {
       console.error(err);
@@ -121,6 +126,9 @@ export function ShopeeProcessingTable({ items }: Props) {
 
   const total = items.reduce((s, item) => s + getCurrentAmount(item), 0);
   const hasUnsaved = Object.keys(edits).length > 0;
+  const staleCount = items.filter(
+    (i) => isStale(i.updated_at) && Number(i.amount) > 0,
+  ).length;
 
   return (
     <Card>
@@ -129,21 +137,35 @@ export function ShopeeProcessingTable({ items }: Props) {
           onClick={() => setCollapsed(!collapsed)}
           className="flex items-center justify-between w-full text-left"
         >
-          <div>
+          <div className="flex-1">
             <CardTitle className="text-base flex items-center gap-2">
-              <Clock className="w-4 h-4" />
-              Shopee đang xử lý {hasUnsaved && (
+              <Hourglass className="w-4 h-4 text-purple-500" />
+              {title}
+              {hasUnsaved && (
                 <span className="text-[10px] text-warning font-normal">
                   (có thay đổi chưa lưu)
                 </span>
               )}
+              {staleCount > 0 && (
+                <span className="text-[10px] text-warning font-normal">
+                  · {staleCount} mục đã cũ
+                </span>
+              )}
             </CardTitle>
             <p className="text-xs text-muted-foreground mt-0.5">
-              {items.length} affiliate · Tổng <span className="font-semibold text-foreground">{formatCurrency(total)}</span>
-              {" · "}Số đã có số liệu Shopee nhưng chưa đối soát thành đợt
+              {description ?? "Số hoa hồng đã ghi nhận theo ngày nhưng chưa đối soát thành đợt"}
+              {" · "}
+              {items.length} affiliate · Tổng{" "}
+              <span className="font-semibold text-foreground">
+                {formatCurrency(total)}
+              </span>
             </p>
           </div>
-          {collapsed ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
+          {collapsed ? (
+            <ChevronDown className="w-4 h-4 flex-shrink-0" />
+          ) : (
+            <ChevronUp className="w-4 h-4 flex-shrink-0" />
+          )}
         </button>
       </CardHeader>
       {!collapsed && (
@@ -182,7 +204,7 @@ export function ShopeeProcessingTable({ items }: Props) {
                         className={cn(
                           "border-b border-border last:border-0 hover:bg-muted/30",
                           isEdited && "bg-warning/5",
-                          stale && Number(item.amount) > 0 && "bg-muted/20",
+                          stale && Number(item.amount) > 0 && !isEdited && "bg-muted/20",
                         )}
                       >
                         <td className="px-6 py-2.5 font-medium">
@@ -199,14 +221,20 @@ export function ShopeeProcessingTable({ items }: Props) {
                           <Input
                             type="date"
                             value={getCurrentSnapshot(item)}
-                            onChange={(e) => setSnapshot(item.affiliate_id, e.target.value)}
+                            onChange={(e) =>
+                              setSnapshot(item.affiliate_id, e.target.value)
+                            }
                             className="h-9 text-xs"
                           />
                         </td>
                         <td className="px-3 py-2.5 text-xs">
-                          <div className={cn(
-                            stale && Number(item.amount) > 0 ? "text-warning font-medium" : "text-muted-foreground",
-                          )}>
+                          <div
+                            className={cn(
+                              stale && Number(item.amount) > 0
+                                ? "text-warning font-medium"
+                                : "text-muted-foreground",
+                            )}
+                          >
                             {timeAgo(item.updated_at)}
                           </div>
                           {stale && Number(item.amount) > 0 && (
@@ -237,7 +265,7 @@ export function ShopeeProcessingTable({ items }: Props) {
                 <tfoot>
                   <tr className="border-t-2 border-border font-semibold bg-muted/30">
                     <td className="px-6 py-3">Tổng cộng</td>
-                    <td className="px-3 py-3 text-right tabular-nums">
+                    <td className="px-3 py-3 text-right tabular-nums text-purple-500">
                       {formatCurrency(total)}
                     </td>
                     <td colSpan={3}></td>
@@ -247,8 +275,8 @@ export function ShopeeProcessingTable({ items }: Props) {
             </div>
           )}
           <div className="px-6 py-3 border-t border-border bg-muted/20 text-xs text-muted-foreground">
-            💡 <strong>Cách dùng</strong>: Vào trang Shopee Affiliate → Thanh toán → Hóa đơn đối soát → copy số "Khoản thanh toán đang xử lý" → paste vào ô tương ứng → Lưu.
-            Sau khi lưu, pie chart và tổng tài sản sẽ tự cập nhật.
+            💡 <strong>Cách dùng</strong>: Vào trang Shopee Affiliate → Thanh toán → Hóa đơn đối soát → copy số &ldquo;Khoản thanh toán đang xử lý&rdquo; → paste vào ô tương ứng → bấm Lưu.
+            Số mới sẽ <strong>ghi đè</strong> số cũ. Hiển thị trong Tổng tài sản và trang chi tiết affiliate.
           </div>
         </CardContent>
       )}
