@@ -1,6 +1,7 @@
 import { PageHeader } from "@/components/layout/page-header";
 import { createClient } from "@/lib/supabase/server";
 import { ReconciliationView } from "@/components/reconciliation/reconciliation-view";
+import { ShopeeProcessingSection } from "@/components/reports/shopee-processing-section";
 import type { AffiliateAccount } from "@/types/database";
 
 interface ShopeePaymentRow {
@@ -21,7 +22,6 @@ interface ShopeePaymentRow {
 
 export default async function ReconciliationPage() {
   const supabase = await createClient();
-
   const [affiliatesRes, paymentsRes] = await Promise.all([
     supabase
       .from("affiliate_accounts")
@@ -65,6 +65,9 @@ export default async function ReconciliationPage() {
         description="Nhập đợt thanh toán Shopee - hệ thống tự ghi nhận hoa hồng tương ứng"
       />
       <ReconciliationView affiliates={affiliates} payments={payments} />
+
+      {/* ✨ Bảng nhập Shopee đang xử lý */}
+      <ShopeeProcessingSection />
     </div>
   );
 }
