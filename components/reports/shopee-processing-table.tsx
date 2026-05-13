@@ -26,6 +26,13 @@ interface Props {
   defaultExpanded?: boolean;
 }
 
+// Tỷ lệ Net/Gross — Shopee giữ 10% thuế TNCN
+const NET_RATIO = 0.9;
+
+function calcNet(gross: number): number {
+  return Math.round(gross * NET_RATIO);
+}
+
 function timeAgo(iso: string | null): string {
   if (!iso) return "Chưa cập nhật";
   const date = new Date(iso);
@@ -103,7 +110,7 @@ export function ShopeeProcessingTable({
         return;
       }
       toast.success(
-        `Đã cập nhật ${item.affiliate_name}: ${formatCurrency(amount)}`,
+        `Đã cập nhật ${item.affiliate_name}: ${formatCurrency(amount)} (Net ${formatCurrency(calcNet(amount))})`,
       );
 
       setEdits((prev) => {
@@ -124,7 +131,8 @@ export function ShopeeProcessingTable({
     }
   }
 
-  const total = items.reduce((s, item) => s + getCurrentAmount(item), 0);
+  const totalGross = items.reduce((s, item) => s + getCurrentAmount(item), 0);
+  const totalNet = calcNet(totalGross);
   const hasUnsaved = Object.keys(edits).length > 0;
   const staleCount = items.filter(
     (i) => isStale(i.updated_at) && Number(i.amount) > 0,
@@ -155,9 +163,13 @@ export function ShopeeProcessingTable({
             <p className="text-xs text-muted-foreground mt-0.5">
               {description ?? "Số hoa hồng đã ghi nhận theo ngày nhưng chưa đối soát thành đợt"}
               {" · "}
-              {items.length} affiliate · Tổng{" "}
+              {items.length} affiliate · Tổng Gross{" "}
               <span className="font-semibold text-foreground">
-                {formatCurrency(total)}
+                {formatCurrency(totalGross)}
+              </span>
+              {" · Tổng Net "}
+              <span className="font-semibold text-purple-500">
+                {formatCurrency(totalNet)}
               </span>
             </p>
           </div>
@@ -180,16 +192,25 @@ export function ShopeeProcessingTable({
                 <thead>
                   <tr className="border-b border-border text-xs text-muted-foreground">
                     <th className="text-left font-medium px-6 py-2.5">Affiliate</th>
-                    <th className="text-right font-medium px-3 py-2.5 w-[200px]">
+                    <th className="text-right font-medium px-3 py-2.5 w-[180px]">
                       Số tiền đang xử lý
+                      <div className="text-[10px] text-muted-foreground font-normal mt-0.5">
+                        (Gross - nhập tay)
+                      </div>
                     </th>
-                    <th className="text-center font-medium px-3 py-2.5 w-[160px]">
+                    <th className="text-right font-medium px-3 py-2.5 w-[180px]">
+                      Hoa hồng đang xử lý (Net)
+                      <div className="text-[10px] text-muted-foreground font-normal mt-0.5">
+                        (= Gross × 0.9, sau thuế)
+                      </div>
+                    </th>
+                    <th className="text-center font-medium px-3 py-2.5 w-[150px]">
                       Snapshot Shopee
                     </th>
-                    <th className="text-left font-medium px-3 py-2.5 w-[130px]">
+                    <th className="text-left font-medium px-3 py-2.5 w-[120px]">
                       Cập nhật lần cuối
                     </th>
-                    <th className="text-right font-medium px-6 py-2.5 w-[100px]"></th>
+                    <th className="text-right font-medium px-6 py-2.5 w-[90px]"></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -197,6 +218,8 @@ export function ShopeeProcessingTable({
                     const isEdited = edits[item.affiliate_id] !== undefined;
                     const stale = isStale(item.updated_at);
                     const isSaving = savingId === item.affiliate_id;
+                    const grossAmount = getCurrentAmount(item);
+                    const netAmount = calcNet(grossAmount);
 
                     return (
                       <tr
@@ -212,10 +235,15 @@ export function ShopeeProcessingTable({
                         </td>
                         <td className="px-3 py-2 text-right">
                           <CurrencyInput
-                            value={getCurrentAmount(item)}
+                            value={grossAmount}
                             onChange={(v) => setEdit(item.affiliate_id, v)}
                             className="text-right tabular-nums h-9"
                           />
+                        </td>
+                        <td className="px-3 py-2 text-right">
+                          <div className="h-9 flex items-center justify-end px-3 rounded-md bg-muted/40 text-purple-500 font-semibold tabular-nums">
+                            {formatCurrency(netAmount)}
+                          </div>
                         </td>
                         <td className="px-3 py-2 text-center">
                           <Input
@@ -265,8 +293,11 @@ export function ShopeeProcessingTable({
                 <tfoot>
                   <tr className="border-t-2 border-border font-semibold bg-muted/30">
                     <td className="px-6 py-3">Tổng cộng</td>
+                    <td className="px-3 py-3 text-right tabular-nums">
+                      {formatCurrency(totalGross)}
+                    </td>
                     <td className="px-3 py-3 text-right tabular-nums text-purple-500">
-                      {formatCurrency(total)}
+                      {formatCurrency(totalNet)}
                     </td>
                     <td colSpan={3}></td>
                   </tr>
@@ -275,8 +306,9 @@ export function ShopeeProcessingTable({
             </div>
           )}
           <div className="px-6 py-3 border-t border-border bg-muted/20 text-xs text-muted-foreground">
-            💡 <strong>Cách dùng</strong>: Vào trang Shopee Affiliate → Thanh toán → Hóa đơn đối soát → copy số &ldquo;Khoản thanh toán đang xử lý&rdquo; → paste vào ô tương ứng → bấm Lưu.
-            Số mới sẽ <strong>ghi đè</strong> số cũ. Hiển thị trong Tổng tài sản và trang chi tiết affiliate.
+            💡 <strong>Cách dùng</strong>: Vào trang Shopee Affiliate → Thanh toán → Hóa đơn đối soát → copy số &ldquo;Khoản thanh toán đang xử lý&rdquo; (Gross) → paste vào ô tương ứng → bấm Lưu.
+            Cột <strong className="text-purple-500">Net</strong> = Gross × 0.9 (tự tính sau khi trừ thuế 10%).
+            <strong> Net</strong> được dùng trong Tổng tài sản và trên trang chi tiết affiliate.
           </div>
         </CardContent>
       )}
