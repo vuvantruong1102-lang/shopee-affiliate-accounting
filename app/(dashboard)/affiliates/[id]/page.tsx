@@ -28,6 +28,9 @@ interface PageProps {
 
 type Preset = "all" | "this_week" | "this_month" | "last_month" | "this_year" | "custom";
 
+// Shopee giữ 10% thuế TNCN → Net = Gross × 0.9
+const NET_RATIO = 0.9;
+
 export default async function AffiliateDetailPage({ params, searchParams }: PageProps) {
   const { id } = await params;
   const search = await searchParams;
@@ -86,7 +89,6 @@ export default async function AffiliateDetailPage({ params, searchParams }: Page
 
   const totalGross = commissions.reduce((s, c) => s + c.gross_amount, 0);
   const totalTax = commissions.reduce((s, c) => s + c.tax_withheld, 0);
-  const totalNet = commissions.reduce((s, c) => s + c.net_amount, 0);
   const totalReceived = commissions
     .filter((c) => c.status === "received")
     .reduce((s, c) => s + c.net_amount, 0);
@@ -123,16 +125,21 @@ export default async function AffiliateDetailPage({ params, searchParams }: Page
   const totalDeposited = cashDeposits.reduce((s, d) => s + d.amount, 0);
   const undeposited = totalReceived - totalDeposited;
 
-  // ============ ✨ SHOPEE ĐANG XỬ LÝ ============
+  // ============ SHOPEE ĐANG XỬ LÝ ============
   const { data: processingData } = await supabase
     .from("shopee_processing_amounts")
     .select("amount, snapshot_date, updated_at")
     .eq("affiliate_id", id)
     .maybeSingle();
 
-  const shopeeProcessing = Number(processingData?.amount ?? 0);
+  // DB lưu Gross, hiển thị Net
+  const shopeeProcessingGross = Number(processingData?.amount ?? 0);
+  const shopeeProcessingNet = Math.round(shopeeProcessingGross * NET_RATIO);
   const processingUpdatedAt = (processingData?.updated_at ?? null) as string | null;
   const processingSnapshotDate = (processingData?.snapshot_date ?? null) as string | null;
+
+  // ✨ Tổng hoa hồng (Net) = Đã nhận + Chưa nhận + Shopee đang xử lý (Net)
+  const totalNet = totalReceived + totalPending + shopeeProcessingNet;
 
   // ============ Activity log ============
   const activityItems: ActivityItem[] = [
@@ -257,19 +264,21 @@ export default async function AffiliateDetailPage({ params, searchParams }: Page
             ? "Năm này"
             : `${filterFrom} → ${filterTo}`;
 
-  // Format subtitle cho KPI Shopee đang xử lý
   const processingSubtitle = (() => {
-    if (shopeeProcessing === 0 && !processingUpdatedAt) {
+    if (shopeeProcessingGross === 0 && !processingUpdatedAt) {
       return "Chưa cập nhật · Nhập ở Đối soát Shopee";
     }
+    const parts: string[] = [];
+    parts.push(`Gross ${formatCurrency(shopeeProcessingGross)}`);
     if (processingSnapshotDate) {
-      return `Snapshot ${formatDate(processingSnapshotDate)}`;
+      parts.push(`Snapshot ${formatDate(processingSnapshotDate)}`);
     }
-    if (processingUpdatedAt) {
-      return `Cập nhật ${formatDate(processingUpdatedAt)}`;
-    }
-    return "Shopee chưa đối soát";
+    return parts.join(" · ");
   })();
+
+  const totalNetSubtitle = shopeeProcessingNet > 0
+    ? `Đã nhận + Chưa nhận + Đang xử lý (Net)`
+    : `${formatCurrency(totalTax)} thuế đã KT · Gross ${formatCurrency(totalGross)}`;
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -321,12 +330,11 @@ export default async function AffiliateDetailPage({ params, searchParams }: Page
         </CardContent>
       </Card>
 
-      {/* ✨ 5 KPI thay vì 4 */}
       <div className="grid gap-4 grid-cols-2 md:grid-cols-3 lg:grid-cols-5">
         <KpiCard
           label="Tổng hoa hồng (Net)"
           value={formatCurrency(totalNet)}
-          subtitle={`${formatCurrency(totalTax)} thuế đã KT · Gross ${formatCurrency(totalGross)}`}
+          subtitle={totalNetSubtitle}
         />
         <KpiCard
           label="Đã thực nhận"
@@ -356,7 +364,7 @@ export default async function AffiliateDetailPage({ params, searchParams }: Page
         />
         <KpiCard
           label="Shopee đang xử lý"
-          value={formatCurrency(shopeeProcessing)}
+          value={formatCurrency(shopeeProcessingNet)}
           subtitle={processingSubtitle}
           variant="purple"
         />
