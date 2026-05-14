@@ -58,20 +58,28 @@ export interface PnlData extends PnlRawData {
 }
 
 /**
- * Tính tổng thuế CẢ NĂM cho tất cả affiliate active.
+ * ✨ FIX BUG: tính taxAdditional ở mức TỪNG AFFILIATE rồi cộng lại.
  * 
- * Logic (KHÔNG cộng processing):
- * - Gross năm aff = commissions YTD only
- * - Lương năm = monthly × 12
- * - Áp lũy tiến 5 bậc theo năm → tax_progressive_aff
+ * Lý do: trước đây tính tổng global → bù trừ "lũy tiến của người A" với
+ * "tạm nộp của người B" → ra số sai.
  * 
- * Returns:
- * - taxProgressive: tổng thuế lũy tiến
- * - taxWithheld: tổng thuế Shopee đã KT (chỉ từ commissions)
+ * Logic đúng:
+ *   for each affiliate:
+ *     aff_progressive = lũy tiến của riêng người này
+ *     aff_withheld    = thuế Shopee KT của riêng người này
+ *     aff_additional  = max(0, aff_progressive - aff_withheld)  ← KHÔNG bù trừ
+ *   
+ *   tổng_additional = SUM(aff_additional)
+ *   tổng_withheld   = SUM(aff_withheld)
+ *   tổng_payable    = tổng_withheld + tổng_additional
  */
 async function calculateTotalTax(
   supabase: Awaited<ReturnType<typeof createClient>>,
-): Promise<{ taxProgressive: number; taxWithheld: number }> {
+): Promise<{
+  taxProgressive: number;
+  taxWithheld: number;
+  taxAdditional: number;
+}> {
   const currentYear = new Date().getFullYear();
   const yearStart = `${currentYear}-01-01`;
   const yearEnd = `${currentYear}-12-31`;
@@ -106,12 +114,15 @@ async function calculateTotalTax(
 
   let totalTaxProgressive = 0;
   let totalTaxWithheld = 0;
+  let totalTaxAdditional = 0;  // ✨ MỚI: tổng additional tính per-aff
 
   for (const a of affiliates) {
     const ytd = ytdMap.get(a.id) ?? { gross: 0, tax: 0 };
 
+    // Withheld cộng tất cả (kể cả affiliate không có lương + không có commission)
     totalTaxWithheld += ytd.tax;
 
+    // Skip nếu không có doanh thu và không có lương (lũy tiến = 0)
     if (ytd.gross === 0 && !a.has_company_salary) continue;
 
     const result = calculateYtdAdditionalTax({
@@ -120,18 +131,25 @@ async function calculateTotalTax(
       monthlySalaryTaxWithheld: a.has_company_salary
         ? Number(a.monthly_salary_tax_withheld)
         : 0,
-      ytdShopeeGross: ytd.gross,        // KHÔNG cộng processing
+      ytdShopeeGross: ytd.gross,
       ytdShopeeTaxWithheld: ytd.tax,
       hasPersonalDeduction: a.has_personal_deduction,
       dependentCount: a.dependent_count,
     });
 
-    totalTaxProgressive += result.taxPayableYtd;
+    const affProgressive = result.taxPayableYtd;
+    const affWithheld = ytd.tax;
+    // ✨ Tính additional CHO TỪNG NGƯỜI (không cho phép âm)
+    const affAdditional = Math.max(0, affProgressive - affWithheld);
+
+    totalTaxProgressive += affProgressive;
+    totalTaxAdditional += affAdditional;
   }
 
   return {
     taxProgressive: Math.round(totalTaxProgressive),
     taxWithheld: Math.round(totalTaxWithheld),
+    taxAdditional: Math.round(totalTaxAdditional),
   };
 }
 
@@ -177,14 +195,15 @@ export default async function PnlReportPage({ searchParams }: PageProps) {
   };
 
   function build(raw: PnlRawData): PnlData {
-    const taxWithheld = Number(raw.total_commission_tax_withheld);
-    const taxProgressive = annualTax.taxProgressive;
+    // ✨ Dùng số tạm nộp TRONG PERIOD (từ RPC) làm số hiển thị
+    // Nhưng dùng số additional CẢ NĂM (đã tính per-aff)
+    const taxWithheldInPeriod = Number(raw.total_commission_tax_withheld);
 
-    // Thuế còn thiếu = max(0, Lũy tiến - Tạm nộp)
-    const taxAdditional = Math.max(0, taxProgressive - taxWithheld);
+    // Thuế còn thiếu = SUM(max(0, progressive - withheld)) cho từng aff CẢ NĂM
+    const taxAdditional = annualTax.taxAdditional;
 
-    // Tổng thuế phải nộp = Tạm + Thiếu (luôn ≥ Tạm, không bao giờ hoàn)
-    const taxPayable = taxWithheld + taxAdditional;
+    // Tổng thuế phải nộp = Tạm nộp (period) + Thiếu (cả năm)
+    const taxPayable = taxWithheldInPeriod + taxAdditional;
 
     const profit = Number(raw.revenue_gross) - taxPayable - Number(raw.total_expense);
     const margin =
@@ -194,7 +213,7 @@ export default async function PnlReportPage({ searchParams }: PageProps) {
 
     return {
       ...raw,
-      tax_progressive: taxProgressive,
+      tax_progressive: annualTax.taxProgressive,
       tax_payable: taxPayable,
       tax_additional: taxAdditional,
       profit_loss: profit,
